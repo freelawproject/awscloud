@@ -1,0 +1,214 @@
+{
+  "Records": [
+    {
+      "eventSource": "aws:ses",
+      "eventVersion": "1.0",
+      "ses": {
+        "mail": {
+          "timestamp": "2021-06-28T20:59:55.682Z",
+          "source": "edgar@whlawpartners.com",
+          "messageId": "171jjm4scn8vgcn5vrcv4su427obcred7bekus81",
+          "destination": [
+            "pacer@whlawpartners.business",
+            "janet@whlawpartners.com"
+          ],
+          "headersTruncated": false,
+          "headers": [
+            {
+              "name": "Return-Path",
+              "value": "<edgar@whlawpartners.com>"
+            },
+            {
+              "name": "Received",
+              "value": "from mail-oi1-f227.google.com (mail-oi1-f227.google.com [209.85.167.227]) by inbound-smtp.us-east-1.amazonaws.com with SMTP id 171jjm4scn8vgcn5vrcv4su427obcred7bekus81 for pacer@whlawpartners.business; Mon, 28 Jun 2021 20:59:55 +0000 (UTC)"
+            },
+            {
+              "name": "X-SES-Spam-Verdict",
+              "value": "PASS"
+            },
+            {
+              "name": "X-SES-Virus-Verdict",
+              "value": "PASS"
+            },
+            {
+              "name": "Received-SPF",
+              "value": "none (spfCheck: 209.85.167.227 is neither permitted nor denied by domain of whlawpartners.com) client-ip=209.85.167.227; envelope-from=edgar@whlawpartners.com; helo=mail-oi1-f227.google.com;"
+            },
+            {
+              "name": "Authentication-Results",
+              "value": "amazonses.com; spf=none (spfCheck: 209.85.167.227 is neither permitted nor denied by domain of whlawpartners.com) client-ip=209.85.167.227; envelope-from=edgar@whlawpartners.com; helo=mail-oi1-f227.google.com; dkim=pass header.i=@whlawpartners.com; dmarc=none header.from=whlawpartners.com;"
+            },
+            {
+              "name": "X-SES-RECEIPT",
+              "value": "AEFBQUFBQUFBQUFFZmEvOEFZbXBLQUlYRkU1Wk9CL1hvL3lXTnVrSFJYdHMwVWV6OThNc1ozWGZ6bHAvYXByR1lSUDRTSjMrTXM2S1F3cDkxMld4dzlVb0pxNXNEZDFvb3BLTjZDd2ZaWXlGbThvcmQ4c1dyRmxxQXZMWS9hV1VjcXlZZ3YyaFVlbHhQdFdIY3NRelpWeEdNbWdKMFRZeko5VGo3MzNnblI1aFgxTU9Vd0EwZVZUSDVFcGREMTJPUEVBWW16MTc0aG1sLzhoMi9QNGlmOENHeDRwV3AzdStzdGlMa1FHUmtDUUdTOGE2bUtFK1NlS3NnWmRQc3l4SUpDQm4vY3J4ZitmeFpGQzZ2U1lJWTd1Y3ZPVXpPVTg1NVJLT2dTYjBSNXB6UHBReDlERCtCRXc9PQ=="
+            },
+            {
+              "name": "X-SES-DKIM-SIGNATURE",
+              "value": "a=rsa-sha256; q=dns/txt; b=hKce6f6+TomBI59I4oQhDysTJedEp20+4TLFRoZFnt5VuZn0G4KTSHzt9xtRa3xNwW09AgkXq3fPjG8eNC/vfJsfGmrN9MTO+ad/xapxDdL9GNEuWhU+B+RKlgPONNhRFoo/UFTFtYVZuf2WrPnBi8+QnrSdGHuCVo5Dd0NCQ/I=; c=relaxed/simple; s=ug7nbtf4gccmlpwj322ax3p6ow6yfsug; d=amazonses.com; t=1624913996; v=1; bh=D4PBoVxbrnF9B3a4kaKU2yA+1/PNe4Mw02inyTAFaYE=; h=From:To:Cc:Bcc:Subject:Date:Message-ID:MIME-Version:Content-Type:X-SES-RECEIPT;"
+            },
+            {
+              "name": "Received",
+              "value": "by mail-oi1-f227.google.com with SMTP id u11so23645952oiv.1 for <pacer@whlawpartners.business>; Mon, 28 Jun 2021 13:59:55 -0700 (PDT)"
+            },
+            {
+              "name": "DKIM-Signature",
+              "value": "v=1; a=rsa-sha256; c=relaxed/relaxed; d=whlawpartners.com; s=google; h=from:to:references:in-reply-to:subject:date:message-id:mime-version:thread-index; bh=KMTqexUBS3/YJ2rRWGY7vDdANRpiNYqkzbGjiV48DUY=; b=bWGCJz4y2HsOD5i7w6AMifgvW6I2NDNvAPOXL410XUEa0Iw2A0NknniIh15bskbY0FhmTJgDT1yK5qT8mYBu318p1E2Q/kfRis8DAs8579mpIl8DDMqnGbACkY0JcMxsxS9bL8D7sV7jSagipp2uWwYDDnOcfRFFU4Xi8vvNlYQ="
+            },
+            {
+              "name": "X-Google-DKIM-Signature",
+              "value": "v=1; a=rsa-sha256; c=relaxed/relaxed; d=1e100.net; s=20161025; h=x-gm-message-state:from:to:references:in-reply-to:subject:date :message-id:mime-version:thread-index; bh=KMTqexUBS3/YJ2rRWGY7vDdANRpiNYqkzbGjiV48DUY=; b=eULUcsGQ5qwfrYsWqJi3nzn5wrWOjSLkwozl2+thpYwD0qqYOQTcVyDEdfe8bn5K68 Opnj5h9DT9lcON8GD4X0eC2gKyYel5bZJZdUWO5RpqP7Zu9MQAKqTlqpzpPU2ssq0/a4 N8kkoR5TxSzF1R2Khf6PxpOdq83bKaQDf8oQ1VdUV8V46BcdZFf7YuY75D2QkXH9Vu7e ANUf6Sg0hbSwq1vb0jCpXiDSQmiYx5AX062Z5+rm0/8jxz/vJ+UWXfLDnP2WORR31klB SRXEIYleZafKYrEIAP9xT/61t5ehPNjIwNSrtWVu+ibhEy/wXCWjVy5Bzxoohswu+ChM fFKw=="
+            },
+            {
+              "name": "X-Gm-Message-State",
+              "value": "AOAM533c7XuFEtkZSKZW9IkZtlPSYO5DIkmV1fTuNU4ImpOQAV34SK3n eu0xUAl+Blo0q0LtHflaNMffElWFhOGS+QxNR46OB3DtGftyKg=="
+            },
+            {
+              "name": "X-Google-Smtp-Source",
+              "value": "ABdhPJwYRHFUMMbg2S3LG5wve9FQ2tb1njmVAmCjyHzCt5o12mLd8C2Ohm0vYuf7t7boG0si3Ixo5wGlfxWZ"
+            },
+            {
+              "name": "X-Received",
+              "value": "by 2002:aca:5bd6:: with SMTP id p205mr227928oib.179.1624913995052; Mon, 28 Jun 2021 13:59:55 -0700 (PDT)"
+            },
+            {
+              "name": "Return-Path",
+              "value": "<edgar@whlawpartners.com>"
+            },
+            {
+              "name": "Received",
+              "value": "from us4.smtp.exclaimer.net (us4.smtp.exclaimer.net. [23.100.38.75]) by smtp-relay.gmail.com with ESMTPS id n24sm6356100otf.8.2021.06.28.13.59.54 for <pacer@whlawpartners.business> (version=TLS1_2 cipher=ECDHE-ECDSA-AES128-GCM-SHA256 bits=128/128); Mon, 28 Jun 2021 13:59:54 -0700 (PDT)"
+            },
+            {
+              "name": "X-Relaying-Domain",
+              "value": "whlawpartners.com"
+            },
+            {
+              "name": "Received",
+              "value": "from mail-oi1-f197.google.com (209.85.167.197) by us4.smtp.exclaimer.net (23.100.38.75) with Exclaimer Signature Manager ESMTP Proxy us4.smtp.exclaimer.net (tlsversion=TLS12, tlscipher=TLS_ECDHE_WITH_AES256_SHA1); Mon, 28 Jun 2021 20:59:54 +0000"
+            },
+            {
+              "name": "X-ExclaimerHostedSignatures-MessageProcessed",
+              "value": "true"
+            },
+            {
+              "name": "X-ExclaimerProxyLatency",
+              "value": "7688746"
+            },
+            {
+              "name": "X-ExclaimerImprintLatency",
+              "value": "2549682"
+            },
+            {
+              "name": "X-ExclaimerImprintAction",
+              "value": "5a7fc92121d74910b9a371586704b700"
+            },
+            {
+              "name": "Content-Type",
+              "value": "multipart/related; boundary=\"----_=_NextPart_3b30f341-8cd8-416e-ae84-04d20f3f4dd2\""
+            },
+            {
+              "name": "Received",
+              "value": "by mail-oi1-f197.google.com with SMTP id a204-20020acab1d50000b0290239d39cfa6cso8363447oif.20 for <pacer@whlawpartners.business>; Mon, 28 Jun 2021 13:59:54 -0700 (PDT)"
+            },
+            {
+              "name": "X-Received",
+              "value": "by 2002:a05:6808:1144:: with SMTP id u4mr22600542oiu.133.1624913993394; Mon, 28 Jun 2021 13:59:53 -0700 (PDT)"
+            },
+            {
+              "name": "X-Received",
+              "value": "by 2002:a05:6808:1144:: with SMTP id u4mr22600534oiu.133.1624913993226; Mon, 28 Jun 2021 13:59:53 -0700 (PDT)"
+            },
+            {
+              "name": "Return-Path",
+              "value": "<edgar@whlawpartners.com>"
+            },
+            {
+              "name": "Received",
+              "value": "from TF (74-194-5-126.rsvlcmta01.com.dyn.suddenlink.net. [74.194.5.126]) by smtp.gmail.com with ESMTPSA id g1sm1429075otq.22.2021.06.28.13.59.52 (version=TLS1_2 cipher=ECDHE-ECDSA-AES128-GCM-SHA256 bits=128/128); Mon, 28 Jun 2021 13:59:52 -0700 (PDT)"
+            },
+            {
+              "name": "From",
+              "value": "<edgar@whlawpartners.com>"
+            },
+            {
+              "name": "To",
+              "value": "<pacer@whlawpartners.business>, \"'Janet Stern'\" <janet@whlawpartners.com>"
+            },
+            {
+              "name": "References",
+              "value": "<1341565521.1984.1624913842484@ca8db.ca8.gtwy.dcn>"
+            },
+            {
+              "name": "In-Reply-To",
+              "value": "<1341565521.1984.1624913842484@ca8db.ca8.gtwy.dcn>"
+            },
+            {
+              "name": "Subject",
+              "value": "FW: 21-2365 Steson Skender v. Eden Isle Corporation, et al \"Corporate Disclosure Statement\""
+            },
+            {
+              "name": "Date",
+              "value": "Mon, 28 Jun 2021 15:59:50 -0500"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<142e01d76c60$8a2045b0$9e60d110$@whlawpartners.com>"
+            },
+            {
+              "name": "MIME-Version",
+              "value": "1.0"
+            },
+            {
+              "name": "X-Mailer",
+              "value": "Microsoft Outlook 16.0"
+            },
+            {
+              "name": "Thread-Index",
+              "value": "AQHTayjfJvQDP/v3BbMF4zbdpEaMyasx6roA"
+            }
+          ],
+          "commonHeaders": {
+            "returnPath": "edgar@whlawpartners.com",
+            "from": [
+              "edgar@whlawpartners.com"
+            ],
+            "date": "Mon, 28 Jun 2021 15:59:50 -0500",
+            "to": [
+              "pacer@whlawpartners.business",
+              "'Janet Stern' <janet@whlawpartners.com>"
+            ],
+            "messageId": "<142e01d76c60$8a2045b0$9e60d110$@whlawpartners.com>",
+            "subject": "FW: 21-2365 Steson Skender v. Eden Isle Corporation, et al \"Corporate Disclosure Statement\""
+          }
+        },
+        "receipt": {
+          "timestamp": "2021-06-28T20:59:55.682Z",
+          "processingTimeMillis": 841,
+          "recipients": [
+            "pacer@whlawpartners.business"
+          ],
+          "spamVerdict": {
+            "status": "PASS"
+          },
+          "virusVerdict": {
+            "status": "PASS"
+          },
+          "spfVerdict": {
+            "status": "GRAY"
+          },
+          "dkimVerdict": {
+            "status": "PASS"
+          },
+          "dmarcVerdict": {
+            "status": "GRAY"
+          },
+          "action": {
+            "type": "Lambda",
+            "functionArn": "arn:aws:lambda:us-east-1:383039475970:function:cl-RecapEmailFunction-v62QTUOf7qmQ",
+            "invocationType": "Event"
+          }
+        }
+      }
+    }
+  ]
+}

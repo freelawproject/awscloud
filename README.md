@@ -1,91 +1,33 @@
 # awscloud
 The combined repo for Free Law Project's AWS Cloud resources.
 
-# {{NEW-PROJECT}}
+awscloud is an open source repository. It was built for use with Courtlistener.com.
 
-{{NEW-PROJECT}} is an open source repository to ...
-It was built for use with Courtlistener.com.
-
-Its main goal is to ...
-It incldues mechanisms to ...
+Its main goal is to standardize AWS deployments and resource management.
+It includes mechanisms to build Lambda functions and test locally, utilizing the [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/what-is-sam.html).
 
 Further development is intended and all contributors, corrections and additions are welcome.
 
-## Background
-
-Free Law Project built this ...  This project represents ...  
-We believe to be the ....
-
 ## Quickstart
 
-You can feed in a X as ... .. ... 
+Resources are divided into separate directories within this project. This is to support different generations of deployments and workflows.
 
-```
-IMPORTS
+For each resource, refer to the README.md in the directory.
 
-CALL EXAMPLE
-
-returns:
-  ""EXAMPLE OUTPUT
-```
-
-
-
-## Some Notes ...
-Somethings to keep in mind as ....
-
-1. ...
-2. ...
-
-
-## Fields
-
-1. `id` ==> string; Courtlistener Court Identifier
-2. `court_url` ==> string; url for court website
-3. `regex` ==>  array; regexes patterns to find courts
-
-
-## Installation
-
-Installing {{NEW-PROJECT}} is easy.
-
-```sh
-pip install {{NEW-PROJECT}}
-```
-
-
-Or install the latest dev version from github
-
-```sh
-pip install git+https://github.com/freelawproject/{{NEW-PROJECT}}.git@master
-```
-
-## Future
-
-1) Continue to improve ...
-2) Future updates
+1. cl (short for courtlistener) - [cl/README.md](cl/README.md)
 
 ## Deployment
 
-If you wish to create a new version manually, the process is:
+Before deploying to AWS, you should setup a profile for free-law-project or the test environment you're using.
 
-1. Update version info in `setup.py`
+Then, run the AWS SAM commands with the profile environment variable:
 
-2. Install the requirements using `poetry install`
-
-3. Set up a config file at `~/.pypirc`
-
-4. Generate a universal distribution that works in py2 and py3 (see setup.cfg)
-
-```sh
-python setup.py sdist bdist_wheel
+```bash
+sam build --use-container
+AWS_PROFILE=free-law-project sam deploy --guided
 ```
 
-5. Upload the distributions
-
-```sh
-twine upload dist/* -r pypi (or pypitest)
-```
+This will guide you through the deployment the first time you run it. It will then save a .toml file inside the resource directory with the deployment configuration. For example: cl/samconfig.taml.
 
 ## License
 
