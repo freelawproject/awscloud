@@ -32,6 +32,17 @@ Temporary Items
 
 # End of https://www.toptal.com/developers/gitignore/api/macos
 
+# User-specific stuff:
+.idea/
+.aws-sam
+.pytest_cache
+
+# CMake
+cmake-build-debug/
+
+## File-based project format:
+*.iws
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
