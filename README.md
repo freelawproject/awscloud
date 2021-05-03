@@ -1,5 +1,5 @@
-# new-project-template
-A template repo for new CL projects
+# awscloud
+The combined repo for Free Law Project's AWS Cloud resources.
 
 # {{NEW-PROJECT}}
 
