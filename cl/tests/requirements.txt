@@ -1,0 +1,12 @@
+pytest
+pytest-mock
+boto3
+requests
+requests_mock
+pyhumps
+flake8
+pylint
+mypy
+types-requests
+pylint
+pylint-json2html
