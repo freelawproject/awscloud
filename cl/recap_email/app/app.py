@@ -7,6 +7,7 @@ from humps import decamelize
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 
+from .pacer import map_pacer_to_cl_id
 from .utils import retry  # pylint: disable=import-error
 
 # NOTE - This is necessary for the relative imports.
@@ -66,6 +67,24 @@ def validation_failure(email, receipt, verdict):
     }
 
 
+def get_cl_court_id(email):
+    """
+    Pull out and normalize the court ID from the email From header
+
+    Take this:
+      ecfnotices@areb.uscourts.gov
+    And return:
+      areb
+
+    :param email: The email dict from AWS
+    :return the CL court ID (not the PACER ID)
+    """
+    from_addr = email["commonHeaders"]["from"][0]
+    # Get just the sub_domain from, "harold@areb.uscourts.gov"
+    sub_domain = from_addr.split("@")[1].split('.')[0]
+    return map_pacer_to_cl_id(sub_domain)
+
+
 @retry(
     (RequestsConnectionError, HTTPError, Timeout),
     tries=10,
@@ -82,8 +101,15 @@ def send_to_court_listener(email, receipt):
     # DEV DOMAIN: http://host.docker.internal:8000
     court_listener_response = requests.post(
         os.getenv("RECAP_EMAIL_ENDPOINT"),
-        json.dumps({"mail": email, "receipt": receipt}),
+        json.dumps(
+            {"mail": email, "receipt": receipt, "court": get_cl_court_id(email)}
+        ),
         headers={"Content-Type": "application/json"},
+    )
+
+    print(
+        f"Got {court_listener_response.status_code=} and content "
+        f"{court_listener_response.json()=}"
     )
 
     return {
