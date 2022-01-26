@@ -33,10 +33,13 @@ Outputs:
   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
   RecapEmailApi:
     Description: "API Gateway endpoint URL for Prod stage for Free Look function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/recap-email/"
+    Value:
+      Fn::Sub: "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/recap-email/"
   RecapEmailFunction:
     Description: "Free Look Email Lambda Function ARN"
-    Value: !GetAtt RecapEmailFunction.Arn
+    Value:
+      Fn::GetAtt: RecapEmailFunction.Arn
   RecapEmailFunctionIamRole:
     Description: "Implicit IAM Role created for the Free Look Email function"
-    Value: !GetAtt RecapEmailFunctionRole.Arn
+    Value:
+      Fn::GetAtt: RecapEmailFunctionRole.Arn

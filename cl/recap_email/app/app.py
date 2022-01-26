@@ -57,9 +57,7 @@ def get_combined_log_message(email):
 
 def validation_failure(email, receipt, verdict):
     print(
-        "{combined} failed with spam verdict {verdict}".format(
-            combined=get_combined_log_message(email), verdict=verdict
-        )
+        f"{get_combined_log_message(email)} failed with spam verdict {verdict}"
     )
     return {
         "statusCode": 424,
@@ -81,7 +79,7 @@ def get_cl_court_id(email):
     """
     from_addr = email["commonHeaders"]["from"][0]
     # Get just the sub_domain from, "harold@areb.uscourts.gov"
-    sub_domain = from_addr.split("@")[1].split('.')[0]
+    sub_domain = from_addr.split("@")[1].split(".")[0]
     return map_pacer_to_cl_id(sub_domain)
 
 
@@ -92,17 +90,17 @@ def get_cl_court_id(email):
     backoff=3,
 )
 def send_to_court_listener(email, receipt):
-    print(
-        "{combined} sending to Court Listener API.".format(
-            combined=get_combined_log_message(email)
-        )
-    )
+    print(f"{get_combined_log_message(email)} sending to Court Listener API.")
 
     # DEV DOMAIN: http://host.docker.internal:8000
     court_listener_response = requests.post(
         os.getenv("RECAP_EMAIL_ENDPOINT"),
         json.dumps(
-            {"mail": email, "receipt": receipt, "court": get_cl_court_id(email)}
+            {
+                "mail": email,
+                "receipt": receipt,
+                "court": get_cl_court_id(email),
+            }
         ),
         headers={"Content-Type": "application/json"},
     )
