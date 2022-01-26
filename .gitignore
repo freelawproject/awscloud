@@ -50,7 +50,6 @@ Temporary Items
 .aws-sam
 .pytest_cache
 samconfig.taml
-pyproject.toml
 
 # CMake
 cmake-build-debug/
