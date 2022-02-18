@@ -91,15 +91,15 @@ def test_dmarc_failure(dmarc_failure_ses_event):
 
 def test_multiple_domains_failed():
     no_valid_emails = ['prvs=144d0cba7=sender@example.com',
-                        'prvs=144d0cba7=sender@.test.example.com',
-                        'prvs=144d0cba7=sender@cacd.uscourts.gov.uk',
-                        'prvs=144d0cba7=sender@uscourts.gov.uk',
-                        ]
-    
-    for email in no_valid_emails:
-        assert app.check_valid_domain(email) == False
+                       'prvs=144d0cba7=sender@.test.example.com',
+                       'prvs=144d0cba7=sender@cacd.uscourts.gov.uk',
+                       'prvs=144d0cba7=sender@uscourts.gov.uk',
+                       ]
 
-        
+    for email in no_valid_emails:
+        assert app.check_valid_domain(email) == 0
+
+
 def test_multiple_domains_success():
     valid_emails = ['cacd_ecfmail@uscourts.gov',
                     'cacd_ecfmail@cacd.test.uscourts.gov',
@@ -107,7 +107,7 @@ def test_multiple_domains_success():
                     ]
 
     for email in valid_emails:
-        assert app.check_valid_domain(email) == True
+        assert app.check_valid_domain(email) == 1
 
 
 @pytest.fixture()

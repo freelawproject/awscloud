@@ -62,20 +62,20 @@ def check_valid_domain(email_address):
 
     # Check if domain (tld_domain[-2]) and tld (tld_domain[-1]) match
     # with uscourts and gov
-    if  tld_domain[-2] != "uscourts" and tld_domain[-1] != "gov":
+    if tld_domain[-2] != "uscourts" and tld_domain[-1] != "gov":
         return False
     else:
         return True
-        
+
 
 def get_valid_domain_verdict(email):
     # Check all Return-Path headers comes from uscourts.gov
     for header in email["headers"]:
         if header["name"] == "Return-Path":
             email_address = header["value"]
-            if  not check_valid_domain(email_address):
+            if not check_valid_domain(email_address):
                 return "FAILED"
-    return "PASS"    
+    return "PASS"
 
 
 def validation_failure(email, receipt, verdict):
@@ -87,15 +87,15 @@ def validation_failure(email, receipt, verdict):
         "body": json.dumps(receipt),
     }
 
+
 def validation_domain_failure(email, receipt, verdict):
     print(
-        f"{get_combined_log_message(email)} failed with valid domain verdict {verdict}"
+        f"{get_combined_log_message(email)}"
+        f" failed with valid domain verdict {verdict}"
     )
     return {
         "statusCode": 424,
-        "valid_domain": {
-        "status": "FAILED"
-        },
+        "valid_domain": {"status": "FAILED"},
         "body": json.dumps(receipt),
     }
 
@@ -137,7 +137,10 @@ def send_to_court_listener(email, receipt):
                 "court": get_cl_court_id(email),
             }
         ),
-        headers={"Content-Type": "application/json", "Authorization": "Token " + os.getenv("AUTH_TOKEN")},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Token " + os.getenv("AUTH_TOKEN"),
+        },
     )
 
     print(
@@ -183,9 +186,9 @@ def handler(event, context):  # pylint: disable=unused-argument
         if verdict != "PASS" and verdict != "GRAY":
             return validation_failure(email, receipt, verdict)
 
-    #Check domain is valid (comes from uscourts.gov)
+    # Check domain is valid (comes from uscourts.gov)
     domain_verdict = get_valid_domain_verdict(email)
     if domain_verdict != "PASS":
-            return validation_domain_failure(email, receipt, domain_verdict)
+        return validation_domain_failure(email, receipt, domain_verdict)
 
     return send_to_court_listener(email, receipt)
