@@ -89,6 +89,43 @@ def test_dmarc_failure(dmarc_failure_ses_event):
     assert data["dmarc_verdict"]["status"] == "FAILED"
 
 
+def test_multiple_domains_failed():
+    no_valid_emails = [
+        "prvs=144d0cba7=sender@example.com",
+        "prvs=144d0cba7=sender@.test.example.com",
+        "prvs=144d0cba7=sender@cacd.uscourts.gov.uk",
+        "prvs=144d0cba7=sender@uscourts.gov.uk",
+    ]
+
+    for email in no_valid_emails:
+        assert app.check_valid_domain(email) == 0
+
+
+def test_multiple_domains_success():
+    valid_emails = [
+        "cacd_ecfmail@uscourts.gov",
+        "cacd_ecfmail@cacd.test.uscourts.gov",
+        "cacd_ecfmail@cacd.uscourts.gov",
+    ]
+
+    for email in valid_emails:
+        assert app.check_valid_domain(email) == 1
+
+
+@pytest.fixture()
+def valid_domain_failure_ses_event():
+    with open("./events/ses-valid-domain-failure.json") as file:
+        data = json.load(file)
+    return data
+
+
+def test_valid_domain_failed(valid_domain_failure_ses_event):
+    response = app.handler(valid_domain_failure_ses_event, "")
+
+    assert response["statusCode"] == 424
+    assert response["valid_domain"]["status"] == "FAILED"
+
+
 @pytest.fixture()
 def ses_event():
     with open("./events/ses.json") as file:
@@ -120,7 +157,8 @@ def pacer_event_three():
 @mock.patch.dict(
     os.environ,
     {
-        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/"  # noqa: E501, pylint: disable=line-too-long
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501, pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
     },
 )
 def test_success(
