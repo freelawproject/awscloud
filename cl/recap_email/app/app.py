@@ -190,5 +190,4 @@ def handler(event, context):  # pylint: disable=unused-argument
     domain_verdict = get_valid_domain_verdict(email)
     if domain_verdict != "PASS":
         return validation_domain_failure(email, receipt, domain_verdict)
-    # Temporarily disable POST to CL while fixing fetching free documents
-    # return send_to_court_listener(email, receipt)
+    return send_to_court_listener(email, receipt)

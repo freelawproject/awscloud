@@ -179,11 +179,9 @@ def test_success(
         pacer_event_two,
         pacer_event_three,
     ]:
-        # Temporarily disable POST to CL while fixing fetching free documents
-        pass
-        # response = app.handler(event, "")
-        # data = json.loads(response["body"])
+        response = app.handler(event, "")
+        data = json.loads(response["body"])
 
-        # assert response["statusCode"] == 200
-        # assert "mail" in data
-        # assert "receipt" in data
+        assert response["statusCode"] == 200
+        assert "mail" in data
+        assert "receipt" in data
