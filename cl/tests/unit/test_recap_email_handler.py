@@ -134,6 +134,13 @@ def ses_event():
 
 
 @pytest.fixture()
+def ses_gray_event():
+    with open("./events/ses-dkim-gray.json") as file:
+        data = json.load(file)
+    return data
+
+
+@pytest.fixture()
 def pacer_event_one():
     with open("./events/pacer-1.json") as file:
         data = json.load(file)
@@ -163,6 +170,7 @@ def pacer_event_three():
 )
 def test_success(
     ses_event,
+    ses_gray_event,
     pacer_event_one,
     pacer_event_two,
     pacer_event_three,
@@ -175,6 +183,7 @@ def test_success(
 
     for event in [
         ses_event,
+        ses_gray_event,
         pacer_event_one,
         pacer_event_two,
         pacer_event_three,

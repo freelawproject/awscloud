@@ -170,7 +170,6 @@ def handler(event, context):  # pylint: disable=unused-argument
         # NOTE - SPAM verdict failed with some test emails.
         get_spam_verdict,
         get_virus_verdict,
-        get_dkim_verdict,
     )
     for test in tests:
         verdict = test(receipt)
@@ -180,6 +179,7 @@ def handler(event, context):  # pylint: disable=unused-argument
     gray_or_pass_tests = (
         get_spf_verdict,
         get_dmarc_verdict,
+        get_dkim_verdict,
     )
     for test in gray_or_pass_tests:
         verdict = test(receipt)
