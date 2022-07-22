@@ -3,9 +3,11 @@ import os
 import sys
 
 import requests
+import sentry_sdk
 from humps import decamelize
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
+from sentry_sdk.integrations.aws_lambda import AwsLambdaIntegration
 
 from .pacer import map_pacer_to_cl_id
 from .utils import retry  # pylint: disable=import-error
@@ -13,6 +15,19 @@ from .utils import retry  # pylint: disable=import-error
 # NOTE - This is necessary for the relative imports.
 # See https://gist.github.com/gene1wood/06a64ba80cf3fe886053f0ca6d375bc0
 sys.path.append(os.path.join(os.path.dirname(__file__)))
+
+SENTRY_DSN = os.getenv("SENTRY_DSN", default="")
+
+sentry_sdk.init(
+    dsn=SENTRY_DSN,
+    integrations=[
+        AwsLambdaIntegration(),
+    ],
+    # Set traces_sample_rate to 1.0 to capture 100%
+    # of transactions for performance monitoring.
+    # We recommend adjusting this value in production,
+    traces_sample_rate=1.0,
+)
 
 
 def get_ses_record_from_event(event):
