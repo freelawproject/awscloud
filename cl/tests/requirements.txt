@@ -10,3 +10,4 @@ mypy
 types-requests
 pylint
 pylint-json2html
+sentry-sdk

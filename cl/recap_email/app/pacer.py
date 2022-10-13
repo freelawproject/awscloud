@@ -4,6 +4,7 @@ pacer_to_cl_ids = {
     "cofc": "uscfc",  # Court of Federal Claims
     "neb": "nebraskab",  # Nebraska Bankruptcy
     "nysb-mega": "nysb",  # Remove the mega thing
+    "txs": "txsd",  # Southern District Of Texas
 }
 
 # Reverse dict of pacer_to_cl_ids

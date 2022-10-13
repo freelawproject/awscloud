@@ -135,9 +135,9 @@ def get_cl_court_id(email):
 
 @retry(
     (RequestsConnectionError, HTTPError, Timeout),
-    tries=10,
+    tries=3,
     delay=5,
-    backoff=3,
+    backoff=2,
 )
 def send_to_court_listener(email, receipt):
     print(f"{get_combined_log_message(email)} sending to Court Listener API.")
@@ -152,11 +152,17 @@ def send_to_court_listener(email, receipt):
                 "court": get_cl_court_id(email),
             }
         ),
+        timeout=5,
         headers={
             "Content-Type": "application/json",
             "Authorization": "Token " + os.getenv("AUTH_TOKEN"),
         },
     )
+
+    if court_listener_response.status_code in [502, 503, 504]:
+        # Raise an HTTPError for Bad Gateway, Service Unavailable or
+        # Gateway Timeout status codes.
+        court_listener_response.raise_for_status()
 
     print(
         f"Got {court_listener_response.status_code=} and content "
