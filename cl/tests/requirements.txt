@@ -3,7 +3,7 @@ pytest-mock
 boto3
 requests
 requests_mock
-pyhumps
+pyhumps==3.7.2
 flake8
 pylint
 mypy
