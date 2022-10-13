@@ -7,7 +7,7 @@
         "mail": {
           "timestamp": "2019-08-05T21:30:02.028Z",
           "source": "prvs=144d0cba7=sender@example.com",
-          "messageId": "EXAMPLE7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
+          "messageId": "1u6oou7m4gpsu5u6qu8efj5dc20jtafff365uo81",
           "destination": [
             "recipient@example.com"
           ],
@@ -133,7 +133,7 @@
           "commonHeaders": {
             "returnPath": "prvs=144d0cba7=sender@example.com",
             "from": [
-              "\"Doe, John\" <sender@example.com>"
+              "\"Doe, John\" <DCECF_LiveDB@txs.uscourts.gov>"
             ],
             "date": "Mon, 5 Aug 2019 21:29:57 +0000",
             "to": [
