@@ -135,9 +135,9 @@ def get_cl_court_id(email):
 
 @retry(
     (RequestsConnectionError, HTTPError, Timeout),
-    tries=3,
-    delay=5,
-    backoff=2,
+    tries=5,
+    delay=10,
+    backoff=3,
 )
 def send_to_court_listener(email, receipt):
     print(f"{get_combined_log_message(email)} sending to Court Listener API.")
