@@ -127,6 +127,20 @@ def test_valid_domain_failed(valid_domain_failure_ses_event):
 
 
 @pytest.fixture()
+def invalid_return_path_ses_event():
+    with open("./events/ses-invalid-return-path.json") as file:
+        data = json.load(file)
+    return data
+
+
+def test_invalid_return_path(invalid_return_path_ses_event):
+    response = app.handler(invalid_return_path_ses_event, "")
+
+    assert response["statusCode"] == 424
+    assert response["valid_domain"]["status"] == "FAILED"
+
+
+@pytest.fixture()
 def ses_event():
     with open("./events/ses.json") as file:
         data = json.load(file)

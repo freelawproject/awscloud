@@ -1,0 +1,79 @@
+{
+  "Records": [
+    {
+      "eventSource": "aws:ses",
+      "eventVersion": "1.0",
+      "ses": {
+        "mail": {
+          "timestamp": "2021-06-28T20:59:55.682Z",
+          "source": "test@example.com",
+          "messageId": "171jjm4scn8vgcn5vrcv4su427obcred7bekus81",
+          "destination": [
+            "test@recap.email"
+          ],
+          "headersTruncated": false,
+          "headers": [
+            {
+              "name": "Return-Path",
+              "value": "<>"
+            },
+            {
+              "name": "Received",
+              "value": "from mail-oi1-f227.google.com (mail-oi1-f227.google.com [209.85.167.227]) by inbound-smtp.us-east-1.amazonaws.com with SMTP id 171jjm4scn8vgcn5vrcv4su427obcred7bekus81 for pacer@whlawpartners.business; Mon, 28 Jun 2021 20:59:55 +0000 (UTC)"
+            },
+            {
+              "name": "X-SES-Spam-Verdict",
+              "value": "PASS"
+            },
+            {
+              "name": "X-SES-Virus-Verdict",
+              "value": "PASS"
+            },
+            {
+              "name": "Received-SPF",
+              "value": "none (spfCheck: 209.85.167.227 is neither permitted nor denied by domain of whlawpartners.com) client-ip=209.85.167.227; envelope-from=edgar@whlawpartners.com; helo=mail-oi1-f227.google.com;"
+            }
+          ],
+          "commonHeaders": {
+            "from": [
+              "test@example.com"
+            ],
+            "date": "Mon, 28 Jun 2021 15:59:50 -0500",
+            "to": [
+              "test@recap.email"
+            ],
+            "messageId": "<142e01d76c60$8a2045b0$9e60d110$@whlawpartners.com>",
+            "subject": "FW: 21-2365 Steson Skender v. Eden Isle Corporation, et al \"Corporate Disclosure Statement\""
+          }
+        },
+        "receipt": {
+          "timestamp": "2021-06-28T20:59:55.682Z",
+          "processingTimeMillis": 841,
+          "recipients": [
+            "test@recap.email"
+          ],
+          "spamVerdict": {
+            "status": "PASS"
+          },
+          "virusVerdict": {
+            "status": "PASS"
+          },
+          "spfVerdict": {
+            "status": "GRAY"
+          },
+          "dkimVerdict": {
+            "status": "PASS"
+          },
+          "dmarcVerdict": {
+            "status": "GRAY"
+          },
+          "action": {
+            "type": "Lambda",
+            "functionArn": "arn:aws:lambda:us-east-1:383039475970:function:cl-RecapEmailFunction-v62QTUOf7qmQ",
+            "invocationType": "Event"
+          }
+        }
+      }
+    }
+  ]
+}
