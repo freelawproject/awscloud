@@ -72,7 +72,13 @@ def get_combined_log_message(email):
 
 def check_valid_domain(email_address):
     domain = email_address.lstrip("<").rstrip(">").split("@")
-    domain = domain[1]
+
+    try:
+        domain = domain[1]
+    except IndexError:
+        # Lack of @, invalid email address
+        return False
+
     tld_domain = domain.split(".")
 
     # Check if domain (tld_domain[-2]) and tld (tld_domain[-1]) match
