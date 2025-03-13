@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 
 import requests
@@ -63,10 +64,9 @@ def get_combined_log_message(email):
         if header["name"] == "Subject":
             subject = header["value"]
 
-    return "Email with {subject}, from {source} to {destination}".format(
-        subject=subject,
-        source=email["source"],
-        destination=email["destination"],
+    return (
+        f"Email with {subject}, from {email['source']} to "
+        f"{email['destination']}"
     )
 
 
@@ -85,8 +85,7 @@ def check_valid_domain(email_address):
     # with uscourts and gov
     if tld_domain[-2] != "uscourts" and tld_domain[-1] != "gov":
         return False
-    else:
-        return True
+    return True
 
 
 def get_valid_domain_verdict(email):
@@ -139,6 +138,22 @@ def get_cl_court_id(email):
     return map_pacer_to_cl_id(sub_domain)
 
 
+def log_invalid_court_error(response):
+    """Checks if the response indicates an invalid court pk then send a report
+    to Sentry.
+    """
+    if response.status_code != 400:
+        return
+
+    for msg in response.json().get("court", []):
+        if "Invalid pk" in msg:
+            match = re.search(r'Invalid pk "([^"]+)"', msg)
+            if match:
+                error_message = f"Invalid court pk: {match.group(1)}"
+                sentry_sdk.capture_message(error_message, level="error")
+                break
+
+
 @retry(
     (RequestsConnectionError, HTTPError, Timeout),
     tries=5,
@@ -161,7 +176,7 @@ def send_to_court_listener(email, receipt):
         timeout=5,
         headers={
             "Content-Type": "application/json",
-            "Authorization": "Token " + os.getenv("AUTH_TOKEN"),
+            "Authorization": f"Token {os.getenv('AUTH_TOKEN')}",
         },
     )
 
@@ -169,6 +184,8 @@ def send_to_court_listener(email, receipt):
         # Raise an HTTPError for Bad Gateway, Service Unavailable or
         # Gateway Timeout status codes.
         court_listener_response.raise_for_status()
+
+    log_invalid_court_error(court_listener_response)
 
     print(
         f"Got {court_listener_response.status_code=} and content "
@@ -210,7 +227,7 @@ def handler(event, context):  # pylint: disable=unused-argument
     )
     for test in gray_or_pass_tests:
         verdict = test(receipt)
-        if verdict != "PASS" and verdict != "GRAY":
+        if verdict not in {"PASS", "GRAY"}:
             return validation_failure(email, receipt, verdict)
 
     # Check domain is valid (comes from uscourts.gov)

@@ -5,6 +5,7 @@ pacer_to_cl_ids = {
     "neb": "nebraskab",  # Nebraska Bankruptcy
     "nysb-mega": "nysb",  # Remove the mega thing
     "txs": "txsd",  # Southern District Of Texas
+    "mow": "mowd",  # Western District of Missouri
 }
 
 # Reverse dict of pacer_to_cl_ids
@@ -18,5 +19,4 @@ def map_pacer_to_cl_id(pacer_id):
 def map_cl_to_pacer_id(cl_id):
     if cl_id == "nysb":
         return cl_id
-    else:
-        return cl_to_pacer_ids.get(cl_id, cl_id)
+    return cl_to_pacer_ids.get(cl_id, cl_id)

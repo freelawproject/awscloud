@@ -7,11 +7,16 @@ import pytest
 import requests  # noqa: F401
 import requests_mock  # noqa: F401
 from recap_email.app import app  # pylint: disable=import-error
+from recap_email.app.pacer import (  # pylint: disable=import-error
+    pacer_to_cl_ids,
+)
+
+from cl.tests.unit.utils import MockResponse
 
 
 @pytest.fixture()
 def spam_failure_ses_event():
-    with open("./events/ses-spam-failure.json") as file:
+    with open("./events/ses-spam-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -27,7 +32,7 @@ def test_spam_failure(spam_failure_ses_event):
 
 @pytest.fixture()
 def virus_failure_ses_event():
-    with open("./events/ses-virus-failure.json") as file:
+    with open("./events/ses-virus-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -43,7 +48,7 @@ def test_virus_failure(virus_failure_ses_event):
 
 @pytest.fixture()
 def spf_failure_ses_event():
-    with open("./events/ses-spf-failure.json") as file:
+    with open("./events/ses-spf-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -59,7 +64,7 @@ def test_spf_failure(spf_failure_ses_event):
 
 @pytest.fixture()
 def dkim_failure_ses_event():
-    with open("./events/ses-dkim-failure.json") as file:
+    with open("./events/ses-dkim-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -75,7 +80,7 @@ def test_dkim_failure(dkim_failure_ses_event):
 
 @pytest.fixture()
 def dmarc_failure_ses_event():
-    with open("./events/ses-dmarc-failure.json") as file:
+    with open("./events/ses-dmarc-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -112,9 +117,23 @@ def test_multiple_domains_success():
         assert app.check_valid_domain(email) == 1
 
 
+def test_get_cl_court_id_using_mapping():
+    for pacer_id, expected_cl in pacer_to_cl_ids.items():
+        email = {
+            "common_headers": {"from": [f"ecfnotices@{pacer_id}.uscourts.gov"]}
+        }
+        result = app.get_cl_court_id(email)
+        assert result == expected_cl, (
+            f"For PACER id '{pacer_id}', expected CL id '{expected_cl}' but "
+            f"got '{result}'."
+        )
+
+
 @pytest.fixture()
 def valid_domain_failure_ses_event():
-    with open("./events/ses-valid-domain-failure.json") as file:
+    with open(
+        "./events/ses-valid-domain-failure.json", encoding="utf-8"
+    ) as file:
         data = json.load(file)
     return data
 
@@ -128,7 +147,9 @@ def test_valid_domain_failed(valid_domain_failure_ses_event):
 
 @pytest.fixture()
 def invalid_return_path_ses_event():
-    with open("./events/ses-invalid-return-path.json") as file:
+    with open(
+        "./events/ses-invalid-return-path.json", encoding="utf-8"
+    ) as file:
         data = json.load(file)
     return data
 
@@ -142,35 +163,35 @@ def test_invalid_return_path(invalid_return_path_ses_event):
 
 @pytest.fixture()
 def ses_event():
-    with open("./events/ses.json") as file:
+    with open("./events/ses.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
 
 @pytest.fixture()
 def ses_gray_event():
-    with open("./events/ses-dkim-gray.json") as file:
+    with open("./events/ses-dkim-gray.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
 
 @pytest.fixture()
 def pacer_event_one():
-    with open("./events/pacer-1.json") as file:
+    with open("./events/pacer-1.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
 
 @pytest.fixture()
 def pacer_event_two():
-    with open("./events/pacer-2.json") as file:
+    with open("./events/pacer-2.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
 
 @pytest.fixture()
 def pacer_event_three():
-    with open("./events/pacer-3.json") as file:
+    with open("./events/pacer-3.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -178,11 +199,11 @@ def pacer_event_three():
 @mock.patch.dict(
     os.environ,
     {
-        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501, pylint: disable=line-too-long
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
         "AUTH_TOKEN": "************************",
     },
 )
-def test_success(
+def test_success(  # pylint: disable=too-many-arguments
     ses_event,
     ses_gray_event,
     pacer_event_one,
@@ -208,3 +229,65 @@ def test_success(
         assert response["statusCode"] == 200
         assert "mail" in data
         assert "receipt" in data
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
+    },
+)
+def test_request_court_field_actual_value(
+    pacer_event_two, requests_mock  # noqa: F811
+):
+    """Confirm that the court_id in the request uses the right value
+    from map_pacer_to_cl_id"""
+    requests_mock.post(
+        "http://host.docker.internal:8000/api/rest/v3/recap-email/",
+        json={"mail": {}, "receipt": {}},
+    )
+
+    response = app.handler(pacer_event_two, "")
+    assert response["statusCode"] == 200
+
+    # Retrieve the request that made by send_to_court_listener
+    request = requests_mock.request_history[0]
+    body = json.loads(request.body)
+    assert (
+        body.get("court") == "mowd"
+    ), f"Expected 'mowd', but got '{body.get('court')}'"
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
+    },
+)
+def test_report_request_for_invalid_court(
+    pacer_event_one, requests_mock  # noqa: F811
+):
+    """Confirm that if an invalid court_id is sent to CL, an error event is
+    sent to Sentry."""
+
+    mock_response = MockResponse(
+        400, {"court": ['Invalid pk "whla" - object does not exist.']}
+    )
+    with (
+        mock.patch(
+            "recap_email.app.app.requests.post", return_value=mock_response
+        ),
+        mock.patch(
+            "recap_email.app.app.sentry_sdk.capture_message"
+        ) as mock_sentry_capture,
+    ):
+        requests_mock.post(
+            "http://host.docker.internal:8000/api/rest/v3/recap-email/",
+            json={"mail": {}, "receipt": {}},
+        )
+        app.handler(pacer_event_one, "")
+    # The expected error message should be sent to Sentry.
+    expected_error = "Invalid court pk: whla"
+    mock_sentry_capture.assert_called_with(expected_error, level="error")
