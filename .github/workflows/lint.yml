@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v2-beta
       - uses: actions/setup-python@v2
         with:
-          python-version: "3.8"
+          python-version: "3.11"
 
       - name: Install dependencies
         run: cd cl && pip install -r recap_email/requirements.txt && pip install -r tests/requirements.txt
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v2-beta
       - uses: actions/setup-python@v2
         with:
-          python-version: "3.8"
+          python-version: "3.11"
 
       - name: Install dependencies
         run: cd cl && pip install -r recap_email/requirements.txt && pip install -r tests/requirements.txt
