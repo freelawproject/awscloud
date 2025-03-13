@@ -120,9 +120,10 @@ def test_get_cl_court_id_using_mapping():
             "common_headers": {"from": [f"ecfnotices@{pacer_id}.uscourts.gov"]}
         }
         result = app.get_cl_court_id(email)
-        assert (
-            result == expected_cl
-        ), f"For PACER id '{pacer_id}', expected CL id '{expected_cl}' but got '{result}'."
+        assert result == expected_cl, (
+            f"For PACER id '{pacer_id}', expected CL id '{expected_cl}' but "
+            f"got '{result}'."
+        )
 
 
 @pytest.fixture()
@@ -226,11 +227,13 @@ def test_success(
 @mock.patch.dict(
     os.environ,
     {
-        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501
         "AUTH_TOKEN": "************************",
     },
 )
-def test_request_court_field_actual_value(pacer_event_two, requests_mock):
+def test_request_court_field_actual_value(
+    pacer_event_two, requests_mock  # noqa: F811
+):
     """Confirm that the court_id in the request uses the right value
     from map_pacer_to_cl_id"""
     requests_mock.post(
@@ -252,11 +255,13 @@ def test_request_court_field_actual_value(pacer_event_two, requests_mock):
 @mock.patch.dict(
     os.environ,
     {
-        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501
         "AUTH_TOKEN": "************************",
     },
 )
-def test_report_request_for_invalid_court(pacer_event_one, requests_mock):
+def test_report_request_for_invalid_court(
+    pacer_event_one, requests_mock  # noqa: F811
+):
     """Confirm that if an invalid court_id is sent to CL, an error event is
     sent to Sentry."""
 
