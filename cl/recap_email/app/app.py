@@ -64,10 +64,9 @@ def get_combined_log_message(email):
         if header["name"] == "Subject":
             subject = header["value"]
 
-    return "Email with {subject}, from {source} to {destination}".format(
-        subject=subject,
-        source=email["source"],
-        destination=email["destination"],
+    return (
+        f"Email with {subject}, from {email['source']} to "
+        f"{email['destination']}"
     )
 
 
@@ -86,8 +85,7 @@ def check_valid_domain(email_address):
     # with uscourts and gov
     if tld_domain[-2] != "uscourts" and tld_domain[-1] != "gov":
         return False
-    else:
-        return True
+    return True
 
 
 def get_valid_domain_verdict(email):
@@ -229,7 +227,7 @@ def handler(event, context):  # pylint: disable=unused-argument
     )
     for test in gray_or_pass_tests:
         verdict = test(receipt)
-        if verdict != "PASS" and verdict != "GRAY":
+        if verdict not in {"PASS", "GRAY"}:
             return validation_failure(email, receipt, verdict)
 
     # Check domain is valid (comes from uscourts.gov)

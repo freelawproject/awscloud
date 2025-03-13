@@ -19,5 +19,4 @@ def map_pacer_to_cl_id(pacer_id):
 def map_cl_to_pacer_id(cl_id):
     if cl_id == "nysb":
         return cl_id
-    else:
-        return cl_to_pacer_ids.get(cl_id, cl_id)
+    return cl_to_pacer_ids.get(cl_id, cl_id)

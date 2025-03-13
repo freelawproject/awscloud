@@ -7,13 +7,16 @@ import pytest
 import requests  # noqa: F401
 import requests_mock  # noqa: F401
 from recap_email.app import app  # pylint: disable=import-error
-from recap_email.app.pacer import pacer_to_cl_ids
-from tests.unit.utils import MockResponse
+from recap_email.app.pacer import (  # pylint: disable=import-error
+    pacer_to_cl_ids,
+)
+
+from cl.tests.unit.utils import MockResponse
 
 
 @pytest.fixture()
 def spam_failure_ses_event():
-    with open("./events/ses-spam-failure.json") as file:
+    with open("./events/ses-spam-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -29,7 +32,7 @@ def test_spam_failure(spam_failure_ses_event):
 
 @pytest.fixture()
 def virus_failure_ses_event():
-    with open("./events/ses-virus-failure.json") as file:
+    with open("./events/ses-virus-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -45,7 +48,7 @@ def test_virus_failure(virus_failure_ses_event):
 
 @pytest.fixture()
 def spf_failure_ses_event():
-    with open("./events/ses-spf-failure.json") as file:
+    with open("./events/ses-spf-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -61,7 +64,7 @@ def test_spf_failure(spf_failure_ses_event):
 
 @pytest.fixture()
 def dkim_failure_ses_event():
-    with open("./events/ses-dkim-failure.json") as file:
+    with open("./events/ses-dkim-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -77,7 +80,7 @@ def test_dkim_failure(dkim_failure_ses_event):
 
 @pytest.fixture()
 def dmarc_failure_ses_event():
-    with open("./events/ses-dmarc-failure.json") as file:
+    with open("./events/ses-dmarc-failure.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -128,7 +131,9 @@ def test_get_cl_court_id_using_mapping():
 
 @pytest.fixture()
 def valid_domain_failure_ses_event():
-    with open("./events/ses-valid-domain-failure.json") as file:
+    with open(
+        "./events/ses-valid-domain-failure.json", encoding="utf-8"
+    ) as file:
         data = json.load(file)
     return data
 
@@ -142,7 +147,9 @@ def test_valid_domain_failed(valid_domain_failure_ses_event):
 
 @pytest.fixture()
 def invalid_return_path_ses_event():
-    with open("./events/ses-invalid-return-path.json") as file:
+    with open(
+        "./events/ses-invalid-return-path.json", encoding="utf-8"
+    ) as file:
         data = json.load(file)
     return data
 
@@ -156,35 +163,35 @@ def test_invalid_return_path(invalid_return_path_ses_event):
 
 @pytest.fixture()
 def ses_event():
-    with open("./events/ses.json") as file:
+    with open("./events/ses.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
 
 @pytest.fixture()
 def ses_gray_event():
-    with open("./events/ses-dkim-gray.json") as file:
+    with open("./events/ses-dkim-gray.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
 
 @pytest.fixture()
 def pacer_event_one():
-    with open("./events/pacer-1.json") as file:
+    with open("./events/pacer-1.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
 
 @pytest.fixture()
 def pacer_event_two():
-    with open("./events/pacer-2.json") as file:
+    with open("./events/pacer-2.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
 
 @pytest.fixture()
 def pacer_event_three():
-    with open("./events/pacer-3.json") as file:
+    with open("./events/pacer-3.json", encoding="utf-8") as file:
         data = json.load(file)
     return data
 
@@ -192,11 +199,11 @@ def pacer_event_three():
 @mock.patch.dict(
     os.environ,
     {
-        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501, pylint: disable=line-too-long
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
         "AUTH_TOKEN": "************************",
     },
 )
-def test_success(
+def test_success(  # pylint: disable=too-many-arguments
     ses_event,
     ses_gray_event,
     pacer_event_one,
@@ -227,7 +234,7 @@ def test_success(
 @mock.patch.dict(
     os.environ,
     {
-        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
         "AUTH_TOKEN": "************************",
     },
 )
@@ -255,7 +262,7 @@ def test_request_court_field_actual_value(
 @mock.patch.dict(
     os.environ,
     {
-        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
         "AUTH_TOKEN": "************************",
     },
 )
