@@ -5,6 +5,7 @@ pacer_to_cl_ids = {
     "neb": "nebraskab",  # Nebraska Bankruptcy
     "nysb-mega": "nysb",  # Remove the mega thing
     "txs": "txsd",  # Southern District Of Texas
+    "mow": "mowd",  # Western District of Missouri
 }
 
 # Reverse dict of pacer_to_cl_ids
