@@ -16,7 +16,7 @@ Resources:
     Properties:
       CodeUri: recap_email/
       Handler: app.app.handler
-      Runtime: python3.8
+      Runtime: python3.11
       Environment:
         Variables:
           RECAP_EMAIL_ENDPOINT: https://www.courtlistener.com/api/rest/v3/recap-email/
