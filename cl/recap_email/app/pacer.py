@@ -6,6 +6,8 @@ pacer_to_cl_ids = {
     "nysb-mega": "nysb",  # Remove the mega thing
     "txs": "txsd",  # Southern District Of Texas
     "mow": "mowd",  # Western District of Missouri
+    "gas": "gasd",  # Southern District of Georgia
+    "cfc": "uscfc",  # Court of Federal Claims
 }
 
 # Reverse dict of pacer_to_cl_ids

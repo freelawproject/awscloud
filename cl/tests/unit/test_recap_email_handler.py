@@ -289,5 +289,8 @@ def test_report_request_for_invalid_court(
         )
         app.handler(pacer_event_one, "")
     # The expected error message should be sent to Sentry.
-    expected_error = "Invalid court pk: whla"
+    expected_error = (
+        "Invalid court pk: whla - "
+        "message_id: 171jjm4scn8vgcn5vrcv4su427obcred7bekus81"
+    )
     mock_sentry_capture.assert_called_with(expected_error, level="error")
