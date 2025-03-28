@@ -65,8 +65,8 @@ def get_combined_log_message(email):
             subject = header["value"]
 
     return (
-        f"Email with {subject}, from {email['source']} to "
-        f"{email['destination']}"
+        f"Email ID {email['message_id']} with {subject}, "
+        f"from {email['source']} to {email['destination']}"
     )
 
 
@@ -138,7 +138,7 @@ def get_cl_court_id(email):
     return map_pacer_to_cl_id(sub_domain)
 
 
-def log_invalid_court_error(response):
+def log_invalid_court_error(response, message_id):
     """Checks if the response indicates an invalid court pk then send a report
     to Sentry.
     """
@@ -149,7 +149,10 @@ def log_invalid_court_error(response):
         if "Invalid pk" in msg:
             match = re.search(r'Invalid pk "([^"]+)"', msg)
             if match:
-                error_message = f"Invalid court pk: {match.group(1)}"
+                error_message = (
+                    f"Invalid court pk: {match.group(1)} - "
+                    f"message_id: {message_id}"
+                )
                 sentry_sdk.capture_message(error_message, level="error")
                 break
 
@@ -185,7 +188,8 @@ def send_to_court_listener(email, receipt):
         # Gateway Timeout status codes.
         court_listener_response.raise_for_status()
 
-    log_invalid_court_error(court_listener_response)
+    message_id = email.get("message_id")
+    log_invalid_court_error(court_listener_response, message_id)
 
     print(
         f"Got {court_listener_response.status_code=} and content "
