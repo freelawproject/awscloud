@@ -81,11 +81,7 @@ def check_valid_domain(email_address):
 
     tld_domain = domain.split(".")
 
-    # Check if domain (tld_domain[-2]) and tld (tld_domain[-1]) match
-    # with uscourts and gov
-    if tld_domain[-2] != "uscourts" and tld_domain[-1] != "gov":
-        return False
-    return True
+    return tld_domain[-2:] == ["uscourts", "gov"]
 
 
 def get_valid_domain_verdict(email):

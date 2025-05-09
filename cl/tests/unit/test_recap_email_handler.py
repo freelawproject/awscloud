@@ -239,7 +239,8 @@ def test_success(  # pylint: disable=too-many-arguments
     },
 )
 def test_request_court_field_actual_value(
-    pacer_event_two, requests_mock  # noqa: F811
+    pacer_event_two,
+    requests_mock,  # noqa: F811
 ):
     """Confirm that the court_id in the request uses the right value
     from map_pacer_to_cl_id"""
@@ -254,9 +255,9 @@ def test_request_court_field_actual_value(
     # Retrieve the request that made by send_to_court_listener
     request = requests_mock.request_history[0]
     body = json.loads(request.body)
-    assert (
-        body.get("court") == "mowd"
-    ), f"Expected 'mowd', but got '{body.get('court')}'"
+    assert body.get("court") == "mowd", (
+        f"Expected 'mowd', but got '{body.get('court')}'"
+    )
 
 
 @mock.patch.dict(
@@ -267,7 +268,8 @@ def test_request_court_field_actual_value(
     },
 )
 def test_report_request_for_invalid_court(
-    pacer_event_one, requests_mock  # noqa: F811
+    pacer_event_one,
+    requests_mock,  # noqa: F811
 ):
     """Confirm that if an invalid court_id is sent to CL, an error event is
     sent to Sentry."""

@@ -4,10 +4,6 @@ boto3
 requests
 requests_mock
 pyhumps==3.7.2
-flake8
-pylint
 mypy
 types-requests
-pylint
-pylint-json2html
 sentry-sdk
