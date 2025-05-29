@@ -20,14 +20,15 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: cd cl && pip install -r recap_email/requirements.txt && pip install -r tests/requirements.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
-      - name: Activate venv
+      - name: Install Python dependencies
         run: |
-          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> $GITHUB_ENV
-          echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          cd cl
+          uv pip install --system -r recap_email/requirements.txt -r tests/requirements.txt
 
       - name: Run tests
         run: cd cl && python -m pytest tests/unit -v
