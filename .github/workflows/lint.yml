@@ -16,10 +16,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - uses: pre-commit/action@v3.0.1
 
-      - name: Install dependencies
-        run: cd cl && pip install -r recap_email/requirements.txt && pip install -r tests/requirements.txt
+      - name: Install Python dependencies
+        run: |
+          cd cl
+          uv pip install --system -r recap_email/requirements.txt -r tests/requirements.txt
 
       - name: mypy Static Type Checker
         run: mypy --ignore-missing-imports .
