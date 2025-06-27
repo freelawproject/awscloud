@@ -10,6 +10,8 @@ pacer_to_cl_ids = {
     "cfc": "uscfc",  # Court of Federal Claims
 }
 
+sub_domains_to_ignore = ["usdoj", "law", "psc", "updates", "MIWD"]
+
 # Reverse dict of pacer_to_cl_ids
 cl_to_pacer_ids = {v: k for k, v in pacer_to_cl_ids.items()}
 

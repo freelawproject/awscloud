@@ -10,7 +10,7 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 from sentry_sdk.integrations.aws_lambda import AwsLambdaIntegration
 
-from .pacer import map_pacer_to_cl_id
+from .pacer import map_pacer_to_cl_id, sub_domains_to_ignore
 from .utils import retry  # pylint: disable=import-error
 
 # NOTE - This is necessary for the relative imports.
@@ -142,15 +142,19 @@ def log_invalid_court_error(response, message_id):
         return
 
     for msg in response.json().get("court", []):
-        if "Invalid pk" in msg:
-            match = re.search(r'Invalid pk "([^"]+)"', msg)
-            if match:
-                error_message = (
-                    f"Invalid court pk: {match.group(1)} - "
-                    f"message_id: {message_id}"
-                )
-                sentry_sdk.capture_message(error_message, level="error")
-                break
+        if "Invalid pk" not in msg:
+            continue
+        match = re.search(r'Invalid pk "([^"]+)"', msg)
+        if not match:
+            continue
+        court_id = match.group(1)
+        error_message = (
+            f"Invalid court pk: {court_id} - message_id: {message_id}"
+        )
+        sentry_sdk.capture_message(
+            error_message, level="error", fingerprint=["invalid-court-pk"]
+        )
+        break
 
 
 @retry(
@@ -230,8 +234,10 @@ def handler(event, context):  # pylint: disable=unused-argument
         if verdict not in {"PASS", "GRAY"}:
             return validation_failure(email, receipt, verdict)
 
-    # Check domain is valid (comes from uscourts.gov)
     domain_verdict = get_valid_domain_verdict(email)
-    if domain_verdict != "PASS":
+    court_id = get_cl_court_id(email)
+    # Check domain is valid (comes from uscourts.gov)
+    # Ignore messages that are not from courts, such as updates.uscourts.gov
+    if domain_verdict != "PASS" or court_id in sub_domains_to_ignore:
         return validation_domain_failure(email, receipt, domain_verdict)
     return send_to_court_listener(email, receipt)
