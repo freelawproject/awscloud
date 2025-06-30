@@ -295,4 +295,32 @@ def test_report_request_for_invalid_court(
         "Invalid court pk: whla - "
         "message_id: 171jjm4scn8vgcn5vrcv4su427obcred7bekus81"
     )
-    mock_sentry_capture.assert_called_with(expected_error, level="error")
+    mock_sentry_capture.assert_called_with(
+        expected_error, level="error", fingerprint=["invalid-court-pk"]
+    )
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
+    },
+)
+def test_ignore_messages_from_invalid_court_ids(
+    pacer_event_one,
+    requests_mock,  # noqa: F811
+):
+    """Confirm that if an invalid court_id in sub_domains_to_ignore is sent, a
+    validation_domain_failure is sent."""
+
+    with mock.patch(
+        "recap_email.app.app.get_cl_court_id", return_value="updates"
+    ):
+        requests_mock.post(
+            "http://host.docker.internal:8000/api/rest/v3/recap-email/",
+            json={"mail": {}, "receipt": {}},
+        )
+        response = app.handler(pacer_event_one, "")
+        assert response["statusCode"] == 424
+        assert response["valid_domain"]["status"] == "FAILED"
