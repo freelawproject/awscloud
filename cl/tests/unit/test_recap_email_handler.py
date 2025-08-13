@@ -111,6 +111,8 @@ def test_multiple_domains_success():
         "cacd_ecfmail@uscourts.gov",
         "cacd_ecfmail@cacd.test.uscourts.gov",
         "cacd_ecfmail@cacd.uscourts.gov",
+        "ACMS@ca9.fedcourts.us",
+        "ACMS@ca2.fedcourts.us",
     ]
 
     for email in valid_emails:
