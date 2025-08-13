@@ -81,7 +81,11 @@ def check_valid_domain(email_address):
 
     tld_domain = domain.split(".")
 
-    return tld_domain[-2:] == ["uscourts", "gov"]
+    valid_domains = [
+        ["uscourts", "gov"],
+        ["fedcourts", "us"],  # ACMS
+    ]
+    return tld_domain[-2:] in valid_domains
 
 
 def get_valid_domain_verdict(email):
