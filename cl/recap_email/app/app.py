@@ -31,9 +31,6 @@ sentry_sdk.init(
     traces_sample_rate=1.0,
 )
 
-RECAP_EMAIL_ENDPOINT = os.getenv("RECAP_EMAIL_ENDPOINT")
-SCOTUS_EMAIL_ENDPOINT = os.getenv("SCOTUS_EMAIL_ENDPOINT")
-
 
 def get_ses_email_headers(email, header_name):
     return [header["value"] for header in email["headers"] if header["name"] == header_name]
@@ -169,6 +166,8 @@ def log_invalid_court_error(response, message_id):
 
 
 def get_cl_endpoint(email):
+    RECAP_EMAIL_ENDPOINT = os.getenv("RECAP_EMAIL_ENDPOINT")
+    SCOTUS_EMAIL_ENDPOINT = os.getenv("SCOTUS_EMAIL_ENDPOINT")
     CL_ENDPOINT_MAP = {
         "sc-us.gov": SCOTUS_EMAIL_ENDPOINT,
         "fedcourts.us": RECAP_EMAIL_ENDPOINT,
@@ -176,7 +175,7 @@ def get_cl_endpoint(email):
     }
 
     for email_address in get_ses_email_headers(email, "Return-Path"):
-        domain = ".".join(parseaddr(email_address)[1].split("@")[:-2])
+        domain = ".".join(parseaddr(email_address)[1].split("@")[1].split(".")[-2:])
 
         if domain in CL_ENDPOINT_MAP:
             return CL_ENDPOINT_MAP[domain]
