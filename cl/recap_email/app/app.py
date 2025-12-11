@@ -1,8 +1,8 @@
-from email.utils import parseaddr
 import json
 import os
 import re
 import sys
+from email.utils import parseaddr
 
 import requests
 import sentry_sdk
@@ -33,7 +33,11 @@ sentry_sdk.init(
 
 
 def get_ses_email_headers(email, header_name):
-    return [header["value"] for header in email["headers"] if header["name"] == header_name]
+    return [
+        header["value"]
+        for header in email["headers"]
+        if header["name"] == header_name
+    ]
 
 
 def get_ses_record_from_event(event):
@@ -89,7 +93,7 @@ def check_valid_domain(email_address):
     valid_domains = [
         ["uscourts", "gov"],
         ["fedcourts", "us"],  # ACMS
-        ["sc-us", "gov"], # SCOTUS
+        ["sc-us", "gov"],  # SCOTUS
     ]
     return tld_domain[-2:] in valid_domains
 
@@ -175,7 +179,9 @@ def get_cl_endpoint(email):
     }
 
     for email_address in get_ses_email_headers(email, "Return-Path"):
-        domain = ".".join(parseaddr(email_address)[1].split("@")[1].split(".")[-2:])
+        domain = ".".join(
+            parseaddr(email_address)[1].split("@")[1].split(".")[-2:]
+        )
 
         if domain in CL_ENDPOINT_MAP:
             return CL_ENDPOINT_MAP[domain]

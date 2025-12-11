@@ -8,7 +8,7 @@ pacer_to_cl_ids = {
     "mow": "mowd",  # Western District of Missouri
     "gas": "gasd",  # Southern District of Georgia
     "cfc": "uscfc",  # Court of Federal Claims
-    "sc-us": "scotus", # Supreme Court of the United States
+    "sc-us": "scotus",  # Supreme Court of the United States
 }
 
 sub_domains_to_ignore = ["usdoj", "law", "psc", "updates", "MIWD"]
