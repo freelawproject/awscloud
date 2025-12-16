@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+from email.utils import parseaddr
 
 import requests
 import sentry_sdk
@@ -29,6 +30,20 @@ sentry_sdk.init(
     # We recommend adjusting this value in production,
     traces_sample_rate=1.0,
 )
+
+
+def get_ses_email_headers(email, header_name):
+    """Extract values for a specific header from an SES email payload.
+
+    :param email: The SES email object.
+    :param header_name: The name of the email header to extract.
+    :return: A list of header values matching the requested header name.
+    """
+    return [
+        header["value"]
+        for header in email["headers"]
+        if header["name"] == header_name
+    ]
 
 
 def get_ses_record_from_event(event):
@@ -71,7 +86,7 @@ def get_combined_log_message(email):
 
 
 def check_valid_domain(email_address):
-    domain = email_address.lstrip("<").rstrip(">").split("@")
+    domain = parseaddr(email_address)[1].split("@")
 
     try:
         domain = domain[1]
@@ -84,17 +99,16 @@ def check_valid_domain(email_address):
     valid_domains = [
         ["uscourts", "gov"],
         ["fedcourts", "us"],  # ACMS
+        ["sc-us", "gov"],  # SCOTUS
     ]
     return tld_domain[-2:] in valid_domains
 
 
 def get_valid_domain_verdict(email):
     # Check all Return-Path headers comes from uscourts.gov
-    for header in email["headers"]:
-        if header["name"] == "Return-Path":
-            email_address = header["value"]
-            if not check_valid_domain(email_address):
-                return "FAILED"
+    for email_address in get_ses_email_headers(email, "Return-Path"):
+        if not check_valid_domain(email_address):
+            return "FAILED"
     return "PASS"
 
 
@@ -161,6 +175,35 @@ def log_invalid_court_error(response, message_id):
         break
 
 
+def get_cl_endpoint(email):
+    """Determine the appropriate CourtListener API endpoint to route an SES
+    email.
+
+    If no known domain match is found, the function defaults to the
+    `RECAP_EMAIL_ENDPOINT`.
+
+    :param email: The SES email object.
+    :return: A string containing the CourtListener API endpoint URL to which
+    the email request should be sent.
+    """
+    RECAP_EMAIL_ENDPOINT = os.getenv("RECAP_EMAIL_ENDPOINT")
+    SCOTUS_EMAIL_ENDPOINT = os.getenv("SCOTUS_EMAIL_ENDPOINT")
+    CL_ENDPOINT_MAP = {
+        "sc-us.gov": SCOTUS_EMAIL_ENDPOINT,
+        "fedcourts.us": RECAP_EMAIL_ENDPOINT,
+        "uscourts.gov": RECAP_EMAIL_ENDPOINT,
+    }
+
+    for email_address in get_ses_email_headers(email, "Return-Path"):
+        domain = ".".join(
+            parseaddr(email_address)[1].split("@")[1].split(".")[-2:]
+        )
+
+        if domain in CL_ENDPOINT_MAP:
+            return CL_ENDPOINT_MAP[domain]
+    return RECAP_EMAIL_ENDPOINT
+
+
 @retry(
     (RequestsConnectionError, HTTPError, Timeout),
     tries=5,
@@ -169,10 +212,11 @@ def log_invalid_court_error(response, message_id):
 )
 def send_to_court_listener(email, receipt):
     print(f"{get_combined_log_message(email)} sending to Court Listener API.")
+    endpoint = get_cl_endpoint(email)
 
     # DEV DOMAIN: http://host.docker.internal:8000
     court_listener_response = requests.post(
-        os.getenv("RECAP_EMAIL_ENDPOINT"),
+        endpoint,
         json.dumps(
             {
                 "mail": email,

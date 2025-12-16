@@ -1,6 +1,7 @@
 # pylint: disable=redefined-outer-name,unused-import
 import json
 import os
+import re
 from unittest import mock
 
 import pytest
@@ -198,6 +199,13 @@ def pacer_event_three():
     return data
 
 
+@pytest.fixture()
+def scotus_event():
+    with open("./events/scotus-1.json", encoding="utf-8") as file:
+        data = json.load(file)
+    return data
+
+
 @mock.patch.dict(
     os.environ,
     {
@@ -259,6 +267,41 @@ def test_request_court_field_actual_value(
     body = json.loads(request.body)
     assert body.get("court") == "mowd", (
         f"Expected 'mowd', but got '{body.get('court')}'"
+    )
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "SCOTUS_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v4/scrapers/scotus-email/",  # noqa: E501 pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
+    },
+)
+def test_scotus_email_request(
+    scotus_event,
+    requests_mock,  # noqa: F811
+):
+    """Confirm a scotus email is properly routed to the SCOTUS_EMAIL_ENDPOINT"""
+    requests_mock.register_uri(
+        "POST",
+        re.compile(r".*"),
+        json={"mail": {}, "receipt": {}},
+        status_code=200,
+    )
+
+    response = app.handler(scotus_event, "")
+    assert response["statusCode"] == 200
+
+    # Retrieve the request that made by send_to_court_listener
+    request = requests_mock.request_history[0]
+    assert (
+        request.url
+        == "http://host.docker.internal:8000/api/rest/v4/scrapers/scotus-email/"
+    )
+
+    body = json.loads(request.body)
+    assert body.get("court") == "scotus", (
+        f"Expected 'scotus', but got '{body.get('court')}'"
     )
 
 
