@@ -33,6 +33,12 @@ sentry_sdk.init(
 
 
 def get_ses_email_headers(email, header_name):
+    """Extract values for a specific header from an SES email payload.
+
+    :param email: The SES email object.
+    :param header_name: The name of the email header to extract.
+    :return: A list of header values matching the requested header name.
+    """
     return [
         header["value"]
         for header in email["headers"]
@@ -170,6 +176,16 @@ def log_invalid_court_error(response, message_id):
 
 
 def get_cl_endpoint(email):
+    """Determine the appropriate CourtListener API endpoint to route an SES
+    email.
+
+    If no known domain match is found, the function defaults to the
+    `RECAP_EMAIL_ENDPOINT`.
+
+    :param email: The SES email object.
+    :return: A string containing the CourtListener API endpoint URL to which
+    the email request should be sent.
+    """
     RECAP_EMAIL_ENDPOINT = os.getenv("RECAP_EMAIL_ENDPOINT")
     SCOTUS_EMAIL_ENDPOINT = os.getenv("SCOTUS_EMAIL_ENDPOINT")
     CL_ENDPOINT_MAP = {
