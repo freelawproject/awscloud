@@ -26,10 +26,12 @@ def map_cl_to_pacer_id(cl_id):
         return cl_id
     return cl_to_pacer_ids.get(cl_id, cl_id)
 
+
 domain_to_cl_id = {
     "sc-us.gov": "scotus",  # Supreme Court of the United States
     "txcourts.gov": "texas",  # All Texas courts
 }
+
 
 def map_domain_to_cl_id(full_domain: str):
     parts = full_domain.split(".")

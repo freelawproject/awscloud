@@ -205,6 +205,7 @@ def scotus_event():
         data = json.load(file)
     return data
 
+
 @pytest.fixture()
 def texas_event():
     with open("./events/texas-1.json", encoding="utf-8") as file:
