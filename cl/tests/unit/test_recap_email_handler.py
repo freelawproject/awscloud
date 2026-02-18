@@ -205,6 +205,12 @@ def scotus_event():
         data = json.load(file)
     return data
 
+@pytest.fixture()
+def texas_event():
+    with open("./events/texas-1.json", encoding="utf-8") as file:
+        data = json.load(file)
+    return data
+
 
 @mock.patch.dict(
     os.environ,
@@ -302,6 +308,41 @@ def test_scotus_email_request(
     body = json.loads(request.body)
     assert body.get("court") == "scotus", (
         f"Expected 'scotus', but got '{body.get('court')}'"
+    )
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "TEXAS_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v4/email/state/tx/tames/alert",  # noqa: E501 pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
+    },
+)
+def test_scotus_email_request(
+    texas_event,
+    requests_mock,  # noqa: F811
+):
+    """Confirm a Texas email is properly routed to the TEXAS_EMAIL_ENDPOINT"""
+    requests_mock.register_uri(
+        "POST",
+        re.compile(r".*"),
+        json={"mail": {}, "receipt": {}},
+        status_code=200,
+    )
+
+    response = app.handler(texas_event, "")
+    assert response["statusCode"] == 200
+
+    # Retrieve the request that made by send_to_court_listener
+    request = requests_mock.request_history[0]
+    assert (
+        request.url
+        == "http://host.docker.internal:8000/api/rest/v4/email/state/tx/tames/alert"
+    )
+
+    body = json.loads(request.body)
+    assert body.get("court") == "texas", (
+        f"Expected 'texas', but got '{body.get('court')}'"
     )
 
 
