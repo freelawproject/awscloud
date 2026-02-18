@@ -36,4 +36,5 @@ def map_domain_to_cl_id(full_domain: str):
     domain = ".".join(parts[-2:])
     if domain in { "fedcourts.us", "uscourts.gov" }:
         return map_pacer_to_cl_id(parts[0])
+    print(domain_to_cl_id, full_domain)
     return domain_to_cl_id.get(full_domain, full_domain)

@@ -318,7 +318,7 @@ def test_scotus_email_request(
         "AUTH_TOKEN": "************************",
     },
 )
-def test_scotus_email_request(
+def test_texas_email_request(
     texas_event,
     requests_mock,  # noqa: F811
 ):

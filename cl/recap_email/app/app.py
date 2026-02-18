@@ -31,15 +31,7 @@ sentry_sdk.init(
     traces_sample_rate=1.0,
 )
 
-RECAP_EMAIL_ENDPOINT = os.getenv("RECAP_EMAIL_ENDPOINT")
-SCOTUS_EMAIL_ENDPOINT = os.getenv("SCOTUS_EMAIL_ENDPOINT")
-TEXAS_EMAIL_ENDPOINT = os.getenv("TEXAS_EMAIL_ENDPOINT")
-CL_ENDPOINT_MAP = {
-    "sc-us.gov": SCOTUS_EMAIL_ENDPOINT,
-    "fedcourts.us": RECAP_EMAIL_ENDPOINT,
-    "uscourts.gov": RECAP_EMAIL_ENDPOINT,
-    "txcourts.gov": TEXAS_EMAIL_ENDPOINT,
-}
+CL_ENDPOINT_MAP = {}
 
 
 def get_ses_email_headers(email, header_name):
@@ -152,7 +144,7 @@ def get_cl_court_id(email):
     :return the CL court ID (not the PACER ID)
     """
     from_addr = email["common_headers"]["from"][0]
-    domain = from_addr.split("@")[1]
+    domain = parseaddr(from_addr)[1].split("@")[1]
     return map_domain_to_cl_id(domain)
 
 
@@ -248,6 +240,17 @@ def send_to_court_listener(email, receipt):
 
 
 def handler(event, context):  # pylint: disable=unused-argument
+    recap_email_endpoint = os.getenv("RECAP_EMAIL_ENDPOINT")
+    scotus_email_endpoint = os.getenv("SCOTUS_EMAIL_ENDPOINT")
+    texas_email_endpoint = os.getenv("TEXAS_EMAIL_ENDPOINT")
+    global CL_ENDPOINT_MAP
+    CL_ENDPOINT_MAP = {
+        "sc-us.gov": scotus_email_endpoint,
+        "fedcourts.us": recap_email_endpoint,
+        "uscourts.gov": recap_email_endpoint,
+        "txcourts.gov": texas_email_endpoint,
+    }
+
     ses_record = get_ses_record_from_event(event)
     if ses_record is None:
         body = {"message": "PACER email receipt requires aws:ses eventSource."}
