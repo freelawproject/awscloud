@@ -31,8 +31,8 @@ sentry_sdk.init(
     traces_sample_rate=1.0,
 )
 
-RECAP_EMAIL_ENDPOINT = None
-CL_ENDPOINT_MAP = {}
+RECAP_EMAIL_ENDPOINT: str = ""
+CL_ENDPOINT_MAP: dict[str, str] = {}
 
 
 def get_ses_email_headers(email, header_name):
