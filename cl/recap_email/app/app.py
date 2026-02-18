@@ -31,6 +31,7 @@ sentry_sdk.init(
     traces_sample_rate=1.0,
 )
 
+RECAP_EMAIL_ENDPOINT = None
 CL_ENDPOINT_MAP = {}
 
 
@@ -240,14 +241,15 @@ def send_to_court_listener(email, receipt):
 
 
 def handler(event, context):  # pylint: disable=unused-argument
-    recap_email_endpoint = os.getenv("RECAP_EMAIL_ENDPOINT")
+    global RECAP_EMAIL_ENDPOINT
+    RECAP_EMAIL_ENDPOINT = os.getenv("RECAP_EMAIL_ENDPOINT")
     scotus_email_endpoint = os.getenv("SCOTUS_EMAIL_ENDPOINT")
     texas_email_endpoint = os.getenv("TEXAS_EMAIL_ENDPOINT")
     global CL_ENDPOINT_MAP
     CL_ENDPOINT_MAP = {
         "sc-us.gov": scotus_email_endpoint,
-        "fedcourts.us": recap_email_endpoint,
-        "uscourts.gov": recap_email_endpoint,
+        "fedcourts.us": RECAP_EMAIL_ENDPOINT,
+        "uscourts.gov": RECAP_EMAIL_ENDPOINT,
         "txcourts.gov": texas_email_endpoint,
     }
 
