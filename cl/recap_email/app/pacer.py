@@ -8,7 +8,6 @@ pacer_to_cl_ids = {
     "mow": "mowd",  # Western District of Missouri
     "gas": "gasd",  # Southern District of Georgia
     "cfc": "uscfc",  # Court of Federal Claims
-    "sc-us": "scotus",  # Supreme Court of the United States
     "id": "idd",  # District Court, D. Idaho
 }
 
@@ -26,3 +25,15 @@ def map_cl_to_pacer_id(cl_id):
     if cl_id == "nysb":
         return cl_id
     return cl_to_pacer_ids.get(cl_id, cl_id)
+
+domain_to_cl_id = {
+    "sc-us.gov": "scotus",  # Supreme Court of the United States
+    "txcourts.gov": "texas",  # All Texas courts
+}
+
+def map_domain_to_cl_id(full_domain: str):
+    parts = full_domain.split(".")
+    domain = ".".join(parts[-2:])
+    if domain in { "fedcourts.us", "uscourts.gov" }:
+        return map_pacer_to_cl_id(parts[0])
+    return domain_to_cl_id.get(full_domain, full_domain)
