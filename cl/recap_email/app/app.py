@@ -11,7 +11,7 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 from sentry_sdk.integrations.aws_lambda import AwsLambdaIntegration
 
-from .pacer import map_domain_to_cl_id, sub_domains_to_ignore
+from .pacer import map_email_to_cl_id, sub_domains_to_ignore
 from .utils import retry  # pylint: disable=import-error
 
 # NOTE - This is necessary for the relative imports.
@@ -144,9 +144,7 @@ def get_cl_court_id(email):
     :param email: The email dict from AWS
     :return the CL court ID (not the PACER ID)
     """
-    from_addr = email["common_headers"]["from"][0]
-    domain = parseaddr(from_addr)[1].split("@")[1]
-    return map_domain_to_cl_id(domain)
+    return map_email_to_cl_id(email)
 
 
 def log_invalid_court_error(response, message_id):
