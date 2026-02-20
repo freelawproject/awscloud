@@ -342,8 +342,8 @@ def test_texas_email_request(
     )
 
     body = json.loads(request.body)
-    assert body.get("court") == "texas", (
-        f"Expected 'texas', but got '{body.get('court')}'"
+    assert body.get("court") == "txctapp1", (
+        f"Expected 'txctapp1', but got '{body.get('court')}'"
     )
 
 

@@ -33,24 +33,24 @@ def get_tx_court_id_from_subject(subject: str) -> str | None:
     if not subject.startswith("Automated Case Update from"):
         return None
     return {
-        "First Court of Appeals": "txctapp1",
-        "Second Court of Appeals": "txctapp2",
-        "Third Court of Appeals": "txctapp3",
-        "Fourth Court of Appeals": "txctapp4",
-        "Fifth Court of Appeals": "txctapp5",
-        "Sixth Court of Appeals": "txctapp6",
-        "Seventh Court of Appeals": "txctapp7",
-        "Eighth Court of Appeals": "txctapp8",
-        "Ninth Court of Appeals": "txctapp9",
-        "Tenth Court of Appeals": "txctapp10",
-        "Eleventh Court of Appeals": "txctapp11",
-        "Twelfth Court of Appeals": "txctapp12",
-        "Thirteenth Court of Appeals": "txctapp13",
-        "Fourteenth Court of Appeals": "txctapp14",
-        "Fifteenth Court of Appeals": "txctapp15",
-        "Court of Criminal Appeals": "texcrimapp",
-        "Supreme Court": "tex",
-    }.get(subject[27:])
+        "first court of appeals": "txctapp1",
+        "second court of appeals": "txctapp2",
+        "third court of appeals": "txctapp3",
+        "fourth court of appeals": "txctapp4",
+        "fifth court of appeals": "txctapp5",
+        "sixth court of appeals": "txctapp6",
+        "seventh court of appeals": "txctapp7",
+        "eighth court of appeals": "txctapp8",
+        "ninth court of appeals": "txctapp9",
+        "tenth court of appeals": "txctapp10",
+        "eleventh court of appeals": "txctapp11",
+        "twelfth court of appeals": "txctapp12",
+        "thirteenth court of appeals": "txctapp13",
+        "fourteenth court of appeals": "txctapp14",
+        "fifteenth court of appeals": "txctapp15",
+        "court of criminal appeals": "texcrimapp",
+        "Supreme court": "tex",
+    }.get(subject[27:].lower())
 
 
 domain_to_cl_id = {
@@ -68,7 +68,9 @@ def map_email_to_cl_id(email):
         return map_pacer_to_cl_id(parts[0])
     maybe_cl_id = domain_to_cl_id.get(full_domain, full_domain)
     if maybe_cl_id == "texas":
-        cl_id = get_tx_court_id_from_subject(email["commonHeaders"]["subject"])
+        cl_id = get_tx_court_id_from_subject(
+            email["common_headers"]["subject"]
+        )
     else:
         cl_id = maybe_cl_id
     return cl_id
