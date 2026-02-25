@@ -125,7 +125,7 @@ def test_get_cl_court_id_using_mapping():
         email = {
             "common_headers": {"from": [f"ecfnotices@{pacer_id}.uscourts.gov"]}
         }
-        result = app.get_cl_court_id(email)
+        result = app.map_email_to_cl_id(email)
         assert result == expected_cl, (
             f"For PACER id '{pacer_id}', expected CL id '{expected_cl}' but "
             f"got '{result}'."
@@ -260,7 +260,7 @@ def test_request_court_field_actual_value(
     requests_mock,  # noqa: F811
 ):
     """Confirm that the court_id in the request uses the right value
-    from map_pacer_to_cl_id"""
+    from map_email_to_cl_id"""
     requests_mock.post(
         "http://host.docker.internal:8000/api/rest/v3/recap-email/",
         json={"mail": {}, "receipt": {}},
@@ -402,7 +402,7 @@ def test_ignore_messages_from_invalid_court_ids(
     validation_domain_failure is sent."""
 
     with mock.patch(
-        "recap_email.app.app.get_cl_court_id", return_value="updates"
+        "recap_email.app.app.map_email_to_cl_id", return_value="updates"
     ):
         requests_mock.post(
             "http://host.docker.internal:8000/api/rest/v3/recap-email/",

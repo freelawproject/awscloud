@@ -132,21 +132,6 @@ def validation_domain_failure(email, receipt, verdict):
     }
 
 
-def get_cl_court_id(email):
-    """
-    Pull out and normalize the court ID from the email From header
-
-    Take this:
-      ecfnotices@areb.uscourts.gov
-    And return:
-      areb
-
-    :param email: The email dict from AWS
-    :return the CL court ID (not the PACER ID)
-    """
-    return map_email_to_cl_id(email)
-
-
 def log_invalid_court_error(response, message_id):
     """Checks if the response indicates an invalid court pk then send a report
     to Sentry.
@@ -209,7 +194,7 @@ def send_to_court_listener(email, receipt):
             {
                 "mail": email,
                 "receipt": receipt,
-                "court": get_cl_court_id(email),
+                "court": map_email_to_cl_id(email),
             }
         ),
         timeout=5,
@@ -283,9 +268,11 @@ def handler(event, context):  # pylint: disable=unused-argument
             return validation_failure(email, receipt, verdict)
 
     domain_verdict = get_valid_domain_verdict(email)
-    court_id = get_cl_court_id(email)
     # Check domain is valid (comes from uscourts.gov)
     # Ignore messages that are not from courts, such as updates.uscourts.gov
-    if domain_verdict != "PASS" or court_id in sub_domains_to_ignore:
+    if domain_verdict != "PASS":
+        return validation_domain_failure(email, receipt, domain_verdict)
+    court_id = map_email_to_cl_id(email)
+    if court_id in sub_domains_to_ignore:
         return validation_domain_failure(email, receipt, domain_verdict)
     return send_to_court_listener(email, receipt)

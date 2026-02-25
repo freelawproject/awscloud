@@ -29,10 +29,16 @@ def map_cl_to_pacer_id(cl_id):
     return cl_to_pacer_ids.get(cl_id, cl_id)
 
 
-def get_tx_court_id_from_subject(subject: str) -> str | None:
-    if not subject.startswith("Automated Case Update from"):
-        return None
-    return {
+def get_tx_court_id_from_subject(subject: str) -> str:
+    """
+    Map an email subject line to a Texas CL Court ID. Raises an exception if
+    the subject or the court name extracted from it is not recognized.
+
+    :param subject: The email subject line.
+
+    :return: CL Court ID.
+    """
+    court_map = {
         "first court of appeals": "txctapp1",
         "second court of appeals": "txctapp2",
         "third court of appeals": "txctapp3",
@@ -49,8 +55,13 @@ def get_tx_court_id_from_subject(subject: str) -> str | None:
         "fourteenth court of appeals": "txctapp14",
         "fifteenth court of appeals": "txctapp15",
         "court of criminal appeals": "texcrimapp",
-        "Supreme court": "tex",
-    }.get(subject[27:].lower())
+        "supreme court": "tex",
+    }
+    prefix = "Automated Case Update from "
+    if not subject.startswith(prefix):
+        raise KeyError(f"Texas: Invalid subject {subject}")
+    court_name = subject.removeprefix(prefix).lower()
+    return court_map[court_name]
 
 
 domain_to_cl_id = {
@@ -60,6 +71,14 @@ domain_to_cl_id = {
 
 
 def map_email_to_cl_id(email):
+    """
+    Attempts to map a case update email address to a CL Court ID. Will raise an
+    exception if the email domain is not recognized.
+
+    :param email: Object containing email content and metadata.
+
+    :return: CL Court ID.
+    """
     from_addr = email["common_headers"]["from"][0]
     full_domain = parseaddr(from_addr)[1].split("@")[1]
     parts = full_domain.split(".")
@@ -68,9 +87,5 @@ def map_email_to_cl_id(email):
         return map_pacer_to_cl_id(parts[0])
     maybe_cl_id = domain_to_cl_id.get(full_domain, full_domain)
     if maybe_cl_id == "texas":
-        cl_id = get_tx_court_id_from_subject(
-            email["common_headers"]["subject"]
-        )
-    else:
-        cl_id = maybe_cl_id
-    return cl_id
+        return get_tx_court_id_from_subject(email["common_headers"]["subject"])
+    return maybe_cl_id
