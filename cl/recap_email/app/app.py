@@ -11,7 +11,7 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 from sentry_sdk.integrations.aws_lambda import AwsLambdaIntegration
 
-from .pacer import map_pacer_to_cl_id, sub_domains_to_ignore
+from .pacer import map_email_to_cl_id, sub_domains_to_ignore
 from .utils import retry  # pylint: disable=import-error
 
 # NOTE - This is necessary for the relative imports.
@@ -30,6 +30,9 @@ sentry_sdk.init(
     # We recommend adjusting this value in production,
     traces_sample_rate=1.0,
 )
+
+RECAP_EMAIL_ENDPOINT: str = ""
+CL_ENDPOINT_MAP: dict[str, str] = {}
 
 
 def get_ses_email_headers(email, header_name):
@@ -94,14 +97,9 @@ def check_valid_domain(email_address):
         # Lack of @, invalid email address
         return False
 
-    tld_domain = domain.split(".")
+    tld = ".".join(domain.split(".")[-2:])
 
-    valid_domains = [
-        ["uscourts", "gov"],
-        ["fedcourts", "us"],  # ACMS
-        ["sc-us", "gov"],  # SCOTUS
-    ]
-    return tld_domain[-2:] in valid_domains
+    return tld in CL_ENDPOINT_MAP
 
 
 def get_valid_domain_verdict(email):
@@ -132,24 +130,6 @@ def validation_domain_failure(email, receipt, verdict):
         "valid_domain": {"status": "FAILED"},
         "body": json.dumps(receipt),
     }
-
-
-def get_cl_court_id(email):
-    """
-    Pull out and normalize the court ID from the email From header
-
-    Take this:
-      ecfnotices@areb.uscourts.gov
-    And return:
-      areb
-
-    :param email: The email dict from AWS
-    :return the CL court ID (not the PACER ID)
-    """
-    from_addr = email["common_headers"]["from"][0]
-    # Get just the sub_domain from, "harold@areb.uscourts.gov"
-    sub_domain = from_addr.split("@")[1].split(".")[0]
-    return map_pacer_to_cl_id(sub_domain)
 
 
 def log_invalid_court_error(response, message_id):
@@ -186,13 +166,6 @@ def get_cl_endpoint(email):
     :return: A string containing the CourtListener API endpoint URL to which
     the email request should be sent.
     """
-    RECAP_EMAIL_ENDPOINT = os.getenv("RECAP_EMAIL_ENDPOINT")
-    SCOTUS_EMAIL_ENDPOINT = os.getenv("SCOTUS_EMAIL_ENDPOINT")
-    CL_ENDPOINT_MAP = {
-        "sc-us.gov": SCOTUS_EMAIL_ENDPOINT,
-        "fedcourts.us": RECAP_EMAIL_ENDPOINT,
-        "uscourts.gov": RECAP_EMAIL_ENDPOINT,
-    }
 
     for email_address in get_ses_email_headers(email, "Return-Path"):
         domain = ".".join(
@@ -221,7 +194,7 @@ def send_to_court_listener(email, receipt):
             {
                 "mail": email,
                 "receipt": receipt,
-                "court": get_cl_court_id(email),
+                "court": map_email_to_cl_id(email),
             }
         ),
         timeout=5,
@@ -251,6 +224,18 @@ def send_to_court_listener(email, receipt):
 
 
 def handler(event, context):  # pylint: disable=unused-argument
+    global RECAP_EMAIL_ENDPOINT
+    RECAP_EMAIL_ENDPOINT = os.getenv("RECAP_EMAIL_ENDPOINT")
+    scotus_email_endpoint = os.getenv("SCOTUS_EMAIL_ENDPOINT")
+    texas_email_endpoint = os.getenv("TEXAS_EMAIL_ENDPOINT")
+    global CL_ENDPOINT_MAP
+    CL_ENDPOINT_MAP = {
+        "sc-us.gov": scotus_email_endpoint,
+        "fedcourts.us": RECAP_EMAIL_ENDPOINT,
+        "uscourts.gov": RECAP_EMAIL_ENDPOINT,
+        "txcourts.gov": texas_email_endpoint,
+    }
+
     ses_record = get_ses_record_from_event(event)
     if ses_record is None:
         body = {"message": "PACER email receipt requires aws:ses eventSource."}
@@ -283,9 +268,11 @@ def handler(event, context):  # pylint: disable=unused-argument
             return validation_failure(email, receipt, verdict)
 
     domain_verdict = get_valid_domain_verdict(email)
-    court_id = get_cl_court_id(email)
     # Check domain is valid (comes from uscourts.gov)
     # Ignore messages that are not from courts, such as updates.uscourts.gov
-    if domain_verdict != "PASS" or court_id in sub_domains_to_ignore:
+    if domain_verdict != "PASS":
+        return validation_domain_failure(email, receipt, domain_verdict)
+    court_id = map_email_to_cl_id(email)
+    if court_id in sub_domains_to_ignore:
         return validation_domain_failure(email, receipt, domain_verdict)
     return send_to_court_listener(email, receipt)
