@@ -9,7 +9,7 @@
                     "source": "buttons@recap.email",
                     "messageId": "cqoglnefvc8p995tuu8mfh3b77c9sgn4vr940vg1",
                     "destination": [
-                        "user@recap.email"
+                        "user@scotus.recap.email"
                     ],
                     "headersTruncated": false,
                     "headers": [

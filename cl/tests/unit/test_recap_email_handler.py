@@ -390,6 +390,68 @@ def test_report_request_for_invalid_court(
 @mock.patch.dict(
     os.environ,
     {
+        "SCOTUS_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v4/scrapers/scotus-email/",  # noqa: E501 pylint: disable=line-too-long
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
+    },
+)
+def test_scotus_email_ignored_for_wrong_subscription(
+    scotus_event,
+    requests_mock,  # noqa: F811
+):
+    """A SCOTUS email delivered to a plain @recap.email address is ignored to
+    avoid double processing via the generic recap.email SES rule."""
+    scotus_event["Records"][0]["ses"]["mail"]["destination"] = [
+        "user@recap.email"
+    ]
+    requests_mock.register_uri(
+        "POST",
+        re.compile(r".*"),
+        json={"mail": {}, "receipt": {}},
+        status_code=200,
+    )
+
+    response = app.handler(scotus_event, "")
+
+    assert response["statusCode"] == 200
+    assert response["subscription"]["status"] == "IGNORED"
+    assert len(requests_mock.request_history) == 0
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "TEXAS_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v4/email/state/tx/tames/alert",  # noqa: E501 pylint: disable=line-too-long
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
+    },
+)
+def test_texas_email_ignored_for_wrong_subscription(
+    texas_event,
+    requests_mock,  # noqa: F811
+):
+    """A Texas email delivered to a plain @recap.email address is ignored to
+    avoid double processing via the generic recap.email SES rule."""
+    texas_event["Records"][0]["ses"]["mail"]["destination"] = [
+        "user@recap.email"
+    ]
+    requests_mock.register_uri(
+        "POST",
+        re.compile(r".*"),
+        json={"mail": {}, "receipt": {}},
+        status_code=200,
+    )
+
+    response = app.handler(texas_event, "")
+
+    assert response["statusCode"] == 200
+    assert response["subscription"]["status"] == "IGNORED"
+    assert len(requests_mock.request_history) == 0
+
+
+@mock.patch.dict(
+    os.environ,
+    {
         "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
         "AUTH_TOKEN": "************************",
     },

@@ -7,7 +7,7 @@
         "timestamp": "2019-08-05T21:30:02.028Z",
         "source": "prvs=144d0cba7=noreply-tames@txcourts.gov",
         "messageId": "EXAMPLE7c191be45-e9aedb9a-02f9-4d12-a87d-dd0099a07f8a-000000",
-        "destination": ["user@recap.email"],
+        "destination": ["user@texas.recap.email"],
         "headersTruncated": false,
         "headers": [{
           "name": "Return-Path",
