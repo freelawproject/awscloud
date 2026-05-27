@@ -11,7 +11,11 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 from sentry_sdk.integrations.aws_lambda import AwsLambdaIntegration
 
-from .pacer import map_email_to_cl_id, sub_domains_to_ignore
+from .pacer import (
+    domain_to_subscription_subdomain,
+    map_email_to_cl_id,
+    sub_domains_to_ignore,
+)
 from .utils import retry  # pylint: disable=import-error
 
 # NOTE - This is necessary for the relative imports.
@@ -128,6 +132,56 @@ def validation_domain_failure(email, receipt, verdict):
     return {
         "statusCode": 424,
         "valid_domain": {"status": "FAILED"},
+        "body": json.dumps(receipt),
+    }
+
+
+def get_source_domain(email):
+    """Return the registrable domain from the email's Return-Path header,
+    or None if no Return-Path is present or parseable.
+    """
+    for email_address in get_ses_email_headers(email, "Return-Path"):
+        parts = parseaddr(email_address)[1].split("@")
+        if len(parts) != 2:
+            continue
+        return ".".join(parts[1].split(".")[-2:]).lower()
+    return None
+
+
+def destination_matches_subscription(email):
+    """Return True if the email should be processed, False if it should be
+    ignored because its source domain requires a specific subscription
+    subdomain (e.g., scotus.recap.email) but the destination does not use it.
+
+    Specifically, if any address in the email's destination list matches the
+    expected destination for the given source domain, return True. Otherwise,
+    return False. This lets us handle potential emails with multiple destinations
+    correctly.
+    """
+    source_domain = get_source_domain(email)
+    if source_domain is None:
+        return True
+    required = domain_to_subscription_subdomain.get(source_domain)
+    if required is None:
+        return True
+    for destination in email.get("destination", []):
+        dest_parts = parseaddr(destination)[1].split("@")
+        if len(dest_parts) != 2:
+            continue
+        dest_domain = dest_parts[1].lower()
+        if dest_domain == required or dest_domain.endswith(f".{required}"):
+            return True
+    return False
+
+
+def ignore_wrong_subscription(email, receipt):
+    print(
+        f"{get_combined_log_message(email)} ignored — destination does not "
+        f"match the required subscription subdomain for its source domain."
+    )
+    return {
+        "statusCode": 200,
+        "subscription": {"status": "IGNORED"},
         "body": json.dumps(receipt),
     }
 
@@ -272,6 +326,8 @@ def handler(event, context):  # pylint: disable=unused-argument
     # Ignore messages that are not from courts, such as updates.uscourts.gov
     if domain_verdict != "PASS":
         return validation_domain_failure(email, receipt, domain_verdict)
+    if not destination_matches_subscription(email):
+        return ignore_wrong_subscription(email, receipt)
     court_id = map_email_to_cl_id(email)
     if court_id in sub_domains_to_ignore:
         return validation_domain_failure(email, receipt, domain_verdict)

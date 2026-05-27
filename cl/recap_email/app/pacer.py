@@ -69,6 +69,14 @@ domain_to_cl_id = {
     "txcourts.gov": "texas",  # All Texas courts
 }
 
+# Maps a court source domain to the subscription subdomain that must receive
+# its emails. Emails from these domains that arrive via a different SES rule
+# (e.g., the generic recap.email rule) are ignored to avoid double processing.
+domain_to_subscription_subdomain = {
+    "sc-us.gov": "scotus.recap.email",
+    "txcourts.gov": "texas.recap.email",
+}
+
 
 def map_email_to_cl_id(email):
     """
