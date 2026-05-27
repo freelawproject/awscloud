@@ -456,7 +456,7 @@ def test_destination_list_matches_subscription(mock_get_source_domain):
     mock_get_source_domain.return_value = source_domain
 
     email = {
-        "destination": [ "bob@test.email", "notifications@scotus.recap.email" ]
+        "destination": ["bob@test.email", "notifications@scotus.recap.email"]
     }
 
     m = destination_matches_subscription(email)

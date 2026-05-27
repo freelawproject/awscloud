@@ -169,9 +169,7 @@ def destination_matches_subscription(email):
         if len(dest_parts) != 2:
             continue
         dest_domain = dest_parts[1].lower()
-        if dest_domain == required or dest_domain.endswith(
-            f".{required}"
-        ):
+        if dest_domain == required or dest_domain.endswith(f".{required}"):
             return True
     return False
 
