@@ -8,6 +8,7 @@ import pytest
 import requests  # noqa: F401
 import requests_mock  # noqa: F401
 from recap_email.app import app  # pylint: disable=import-error
+from recap_email.app.app import destination_matches_subscription
 from recap_email.app.pacer import (  # pylint: disable=import-error
     pacer_to_cl_ids,
 )
@@ -447,6 +448,20 @@ def test_texas_email_ignored_for_wrong_subscription(
     assert response["statusCode"] == 200
     assert response["subscription"]["status"] == "IGNORED"
     assert len(requests_mock.request_history) == 0
+
+
+@mock.patch("recap_email.app.app.get_source_domain")
+def test_destination_list_matches_subscription(mock_get_source_domain):
+    source_domain = "sc-us.gov"
+    mock_get_source_domain.return_value = source_domain
+
+    email = {
+        "destination": [ "bob@test.email", "notifications@scotus.recap.email" ]
+    }
+
+    m = destination_matches_subscription(email)
+
+    assert m == True
 
 
 @mock.patch.dict(

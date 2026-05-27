@@ -152,6 +152,11 @@ def destination_matches_subscription(email):
     """Return True if the email should be processed, False if it should be
     ignored because its source domain requires a specific subscription
     subdomain (e.g., scotus.recap.email) but the destination does not use it.
+
+    Specifically, if any address in the email's destination list matches the
+    expected destination for the given source domain, return True. Otherwise,
+    return False. This lets us handle potential emails with multiple destinations
+    correctly.
     """
     source_domain = get_source_domain(email)
     if source_domain is None:
@@ -162,13 +167,13 @@ def destination_matches_subscription(email):
     for destination in email.get("destination", []):
         dest_parts = parseaddr(destination)[1].split("@")
         if len(dest_parts) != 2:
-            return False
+            continue
         dest_domain = dest_parts[1].lower()
-        if dest_domain != required and not dest_domain.endswith(
+        if dest_domain == required or dest_domain.endswith(
             f".{required}"
         ):
-            return False
-    return True
+            return True
+    return False
 
 
 def ignore_wrong_subscription(email, receipt):
