@@ -461,7 +461,7 @@ def test_destination_list_matches_subscription(mock_get_source_domain):
 
     m = destination_matches_subscription(email)
 
-    assert m == True
+    assert m
 
 
 @mock.patch.dict(
