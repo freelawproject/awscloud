@@ -10,6 +10,7 @@ import requests_mock  # noqa: F401
 from recap_email.app import app  # pylint: disable=import-error
 from recap_email.app.app import destination_matches_subscription
 from recap_email.app.pacer import (  # pylint: disable=import-error
+    get_ecf_host_court,
     pacer_to_cl_ids,
 )
 
@@ -131,6 +132,98 @@ def test_get_cl_court_id_using_mapping():
             f"For PACER id '{pacer_id}', expected CL id '{expected_cl}' but "
             f"got '{result}'."
         )
+
+
+def make_court_email(from_addr, received_hosts):
+    """Build a minimal email object with Received headers listed from the
+    latest relay down to the originating server, as in a real message."""
+    return {
+        "message_id": "test-ecf-host-message-id",
+        "common_headers": {"from": [from_addr]},
+        "headers": [
+            {
+                "name": "Received",
+                "value": (
+                    f"from unknown (HELO {host}) ([156.119.56.176]) by "
+                    "icmecf202.gtwy.uscourts.gov with ESMTP; "
+                    "28 Jun 2021 18:51:10 +0000"
+                ),
+            }
+            for host in received_hosts
+        ],
+    }
+
+
+def test_ecf_host_overrides_shared_domain_bankruptcy():
+    """A txsb NEF arrives from the shared txs.uscourts.gov domain; the ECF
+    database host in the Received headers must reassign it to txsb."""
+    email = make_court_email(
+        "BKECF_LiveDB@txs.uscourts.gov",
+        ["relay1.uscourts.gov", "txsbdb.txsb.gtwy.dcn"],
+    )
+    assert app.map_email_to_cl_id(email) == "txsb"
+
+
+def test_ecf_host_confirms_shared_domain_district():
+    """A txsd NEF from the shared txs.uscourts.gov domain must still map to
+    txsd (the majority case for the shared domain)."""
+    email = make_court_email(
+        "ecf_txsd@txs.uscourts.gov",
+        ["relay1.uscourts.gov", "txsddb.txsd.gtwy.dcn"],
+    )
+    assert app.map_email_to_cl_id(email) == "txsd"
+
+
+def test_ecf_host_agreement_keeps_court():
+    """When the From domain and the ECF host agree, behavior is unchanged."""
+    email = make_court_email(
+        "cacd_ecfmail@cacd.uscourts.gov",
+        ["relay1.uscourts.gov", "cacddb.cacd.gtwy.dcn"],
+    )
+    assert app.map_email_to_cl_id(email) == "cacd"
+
+
+def test_ecf_host_mismatch_on_non_shared_domain_logs_error():
+    """A disagreement on a domain outside the shared-domain set keeps the
+    From-derived court and reports the mismatch to Sentry."""
+    email = make_court_email(
+        "cacd_ecfmail@cacd.uscourts.gov",
+        ["relay1.uscourts.gov", "nysbdb.nysb.gtwy.dcn"],
+    )
+    with mock.patch(
+        "recap_email.app.pacer.sentry_sdk.capture_message"
+    ) as mock_sentry_capture:
+        assert app.map_email_to_cl_id(email) == "cacd"
+    expected_error = (
+        "ECF host court mismatch: From-derived court 'cacd' vs ECF host "
+        "court 'nysb' - message_id: test-ecf-host-message-id"
+    )
+    mock_sentry_capture.assert_called_with(
+        expected_error,
+        level="error",
+        fingerprint=["ecf-host-court-mismatch"],
+    )
+
+
+def test_ecf_host_ignores_generic_gtwy_relays():
+    """Generic court mail relays under gtwy.dcn are not ECF database hosts
+    and must not match, so behavior stays unchanged without an ECF host."""
+    email = make_court_email(
+        "BKECF_LiveDB@txs.uscourts.gov",
+        ["relay1.uscourts.gov", "smtp2-i.asbn.gtwy.dcn"],
+    )
+    assert get_ecf_host_court(email) is None
+    assert app.map_email_to_cl_id(email) == "txsd"
+
+
+def test_ecf_host_uses_earliest_received_header():
+    """The last match across the Received headers (closest to the
+    originating server) wins over hosts stamped by later relays."""
+    email = make_court_email(
+        "BKECF_LiveDB@txs.uscourts.gov",
+        ["otherdb.other.gtwy.dcn", "txsbdb.txsb.gtwy.dcn"],
+    )
+    assert get_ecf_host_court(email) == "txsb"
 
 
 @pytest.fixture()
@@ -275,6 +368,46 @@ def test_request_court_field_actual_value(
     body = json.loads(request.body)
     assert body.get("court") == "mowd", (
         f"Expected 'mowd', but got '{body.get('court')}'"
+    )
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "RECAP_EMAIL_ENDPOINT": "http://host.docker.internal:8000/api/rest/v3/recap-email/",  # noqa: E501 pylint: disable=line-too-long
+        "AUTH_TOKEN": "************************",
+    },
+)
+def test_request_court_field_uses_ecf_host_for_shared_domain(
+    pacer_event_two,
+    requests_mock,  # noqa: F811
+):
+    """A bankruptcy NEF from the shared txs.uscourts.gov domain must be
+    posted with the ECF-host court (txsb), not the district default."""
+    mail = pacer_event_two["Records"][0]["ses"]["mail"]
+    mail["commonHeaders"]["from"] = ["<BKECF_LiveDB@txs.uscourts.gov>"]
+    mail["headers"].append(
+        {
+            "name": "Received",
+            "value": (
+                "from txsbdb.txsb.gtwy.dcn (localhost.localdomain "
+                "[127.0.0.1]) by txsbdb.txsb.gtwy.dcn with ESMTP; "
+                "Mon, 28 Jun 2021 13:51:08 -0500"
+            ),
+        }
+    )
+    requests_mock.post(
+        "http://host.docker.internal:8000/api/rest/v3/recap-email/",
+        json={"mail": {}, "receipt": {}},
+    )
+
+    response = app.handler(pacer_event_two, "")
+    assert response["statusCode"] == 200
+
+    request = requests_mock.request_history[0]
+    body = json.loads(request.body)
+    assert body.get("court") == "txsb", (
+        f"Expected 'txsb', but got '{body.get('court')}'"
     )
 
 

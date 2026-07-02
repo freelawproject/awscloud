@@ -1,4 +1,7 @@
+import re
 from email.utils import parseaddr
+
+import sentry_sdk
 
 pacer_to_cl_ids = {
     # Maps PACER ids to their CL equivalents
@@ -64,6 +67,46 @@ def get_tx_court_id_from_subject(subject: str) -> str:
     return court_map[court_name]
 
 
+# Matches the originating ECF database hostname that courts stamp into the
+# earliest Received headers of every NEF, e.g. "txsbdb.txsb.gtwy.dcn". The
+# "<name>db." prefix is required so generic court mail relays under gtwy.dcn
+# (e.g. "smtp2-i.asbn.gtwy.dcn") don't match.
+ecf_host_re = re.compile(
+    r"\b[a-z0-9]+db\.([a-z0-9]+)\.gtwy\.dcn", re.IGNORECASE
+)
+
+# PACER email subdomains shared by more than one court, mapped to the PACER
+# court ids whose NEFs legitimately originate from that domain. Only these
+# domains may have their From court overridden by the ECF host found
+# in the Received headers.
+shared_domain_courts = {
+    "txs": {"txsd", "txsb"},  # S.D. Tex. district and bankruptcy
+}
+
+
+def get_ecf_host_court(email):
+    """Extract the PACER court id from the originating ECF database hostname
+    in the email's Received headers.
+
+    The last regex match across the concatenated Received headers is the one
+    closest to the originating server, since each relay prepends its header.
+
+    :param email: Object containing email content and metadata.
+
+    :return: The lowercase PACER court id, or None if no ECF database host is
+    present (e.g. non-NEF mail from court staff or mailing lists).
+    """
+    received = " ".join(
+        header["value"]
+        for header in email.get("headers", [])
+        if header["name"] == "Received"
+    )
+    matches = ecf_host_re.findall(received)
+    if not matches:
+        return None
+    return matches[-1].lower()
+
+
 domain_to_cl_id = {
     "sc-us.gov": "scotus",  # Supreme Court of the United States
     "txcourts.gov": "texas",  # All Texas courts
@@ -92,7 +135,23 @@ def map_email_to_cl_id(email):
     parts = full_domain.split(".")
     domain = ".".join(parts[-2:])
     if domain in {"fedcourts.us", "uscourts.gov"}:
-        return map_pacer_to_cl_id(parts[0])
+        pacer_id = parts[0]
+        ecf_court = get_ecf_host_court(email)
+        if ecf_court is not None and ecf_court != pacer_id.lower():
+            if ecf_court in shared_domain_courts.get(pacer_id.lower(), set()):
+                return map_pacer_to_cl_id(ecf_court)
+            message_id = email.get("message_id")
+            error_message = (
+                f"ECF host court mismatch: From-derived court "
+                f"{pacer_id!r} vs ECF host court {ecf_court!r} - "
+                f"message_id: {message_id}"
+            )
+            sentry_sdk.capture_message(
+                error_message,
+                level="error",
+                fingerprint=["ecf-host-court-mismatch"],
+            )
+        return map_pacer_to_cl_id(pacer_id)
     maybe_cl_id = domain_to_cl_id.get(full_domain, full_domain)
     if maybe_cl_id == "texas":
         return get_tx_court_id_from_subject(email["common_headers"]["subject"])
