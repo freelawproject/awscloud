@@ -237,7 +237,7 @@ def get_cl_endpoint(email):
     delay=10,
     backoff=3,
 )
-def send_to_court_listener(email, receipt):
+def send_to_court_listener(email, receipt, court_id):
     print(f"{get_combined_log_message(email)} sending to Court Listener API.")
     endpoint = get_cl_endpoint(email)
 
@@ -248,7 +248,7 @@ def send_to_court_listener(email, receipt):
             {
                 "mail": email,
                 "receipt": receipt,
-                "court": map_email_to_cl_id(email),
+                "court": court_id,
             }
         ),
         timeout=5,
@@ -331,4 +331,4 @@ def handler(event, context):  # pylint: disable=unused-argument
     court_id = map_email_to_cl_id(email)
     if court_id in sub_domains_to_ignore:
         return validation_domain_failure(email, receipt, domain_verdict)
-    return send_to_court_listener(email, receipt)
+    return send_to_court_listener(email, receipt, court_id)
