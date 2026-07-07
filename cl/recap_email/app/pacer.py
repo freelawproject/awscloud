@@ -136,9 +136,16 @@ def map_email_to_cl_id(email):
     domain = ".".join(parts[-2:])
     if domain in {"fedcourts.us", "uscourts.gov"}:
         pacer_id = parts[0]
+        pacer_id_lower = pacer_id.lower()
         ecf_court = get_ecf_host_court(email)
-        if ecf_court is not None and ecf_court != pacer_id.lower():
-            if ecf_court in shared_domain_courts.get(pacer_id.lower(), set()):
+        # Compare mapped CL courts, not raw subdomains: courts like gas or
+        # mow use a From subdomain that differs from their ECF host court
+        # (gasddb.gasd.gtwy.dcn) but both resolve to the same CL court in
+        # map_pacer_to_cl_id.
+        if ecf_court is not None and map_pacer_to_cl_id(
+            ecf_court
+        ) != map_pacer_to_cl_id(pacer_id_lower):
+            if ecf_court in shared_domain_courts.get(pacer_id_lower, set()):
                 return map_pacer_to_cl_id(ecf_court)
             message_id = email.get("message_id")
             error_message = (
