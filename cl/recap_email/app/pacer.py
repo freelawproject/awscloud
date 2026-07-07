@@ -16,6 +16,8 @@ pacer_to_cl_ids = {
     "id": "idd",  # District Court, D. Idaho
 }
 
+# Notice that MIWD (uppercase) was found not to be a NEF. This differentiates it
+# from miwd (lowercase), which is related to actual NEFs.
 sub_domains_to_ignore = ["usdoj", "law", "psc", "updates", "MIWD"]
 
 # Reverse dict of pacer_to_cl_ids
@@ -137,16 +139,17 @@ def map_email_to_cl_id(email):
     if domain in {"fedcourts.us", "uscourts.gov"}:
         pacer_id = parts[0]
         pacer_id_lower = pacer_id.lower()
+        from_court = map_pacer_to_cl_id(pacer_id)
+        from_court_lower = map_pacer_to_cl_id(pacer_id_lower)
         ecf_court = get_ecf_host_court(email)
+        ecf_cl_court = map_pacer_to_cl_id(ecf_court)
         # Compare mapped CL courts, not raw subdomains: courts like gas or
         # mow use a From subdomain that differs from their ECF host court
         # (gasddb.gasd.gtwy.dcn) but both resolve to the same CL court in
         # map_pacer_to_cl_id.
-        if ecf_court is not None and map_pacer_to_cl_id(
-            ecf_court
-        ) != map_pacer_to_cl_id(pacer_id_lower):
+        if ecf_court is not None and ecf_cl_court != from_court_lower:
             if ecf_court in shared_domain_courts.get(pacer_id_lower, set()):
-                return map_pacer_to_cl_id(ecf_court)
+                return ecf_cl_court
             message_id = email.get("message_id")
             error_message = (
                 f"ECF host court mismatch: From-derived court "
@@ -158,7 +161,7 @@ def map_email_to_cl_id(email):
                 level="error",
                 fingerprint=["ecf-host-court-mismatch"],
             )
-        return map_pacer_to_cl_id(pacer_id)
+        return from_court
     maybe_cl_id = domain_to_cl_id.get(full_domain, full_domain)
     if maybe_cl_id == "texas":
         return get_tx_court_id_from_subject(email["common_headers"]["subject"])
