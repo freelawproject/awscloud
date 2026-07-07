@@ -185,8 +185,10 @@ def test_ecf_host_agreement_keeps_court():
 
 def test_ecf_host_agreement_via_pacer_mapping_is_not_a_mismatch():
     """Courts like gas or mow use a From subdomain that differs from their
-    ECF host court (gasddb.gasd.gtwy.dcn) but both resolve to the same CL
-    court via pacer_to_cl_ids, so no mismatch may be reported to Sentry."""
+    ECF host court (gasddb.gasd.gtwy.dcn), and courts like neb use an ECF
+    host that differs from their CL id (nebdb.neb.gtwy.dcn vs nebraskab),
+    but both sides resolve to the same CL court via pacer_to_cl_ids, so no
+    mismatch may be reported to Sentry."""
     emails = [
         ("efile_support@gas.uscourts.gov", "gasddb.gasd.gtwy.dcn", "gasd"),
         (
@@ -194,6 +196,7 @@ def test_ecf_host_agreement_via_pacer_mapping_is_not_a_mismatch():
             "mowddb.mowd.gtwy.dcn",
             "mowd",
         ),
+        ("neb_bkecf@neb.uscourts.gov", "nebdb.neb.gtwy.dcn", "nebraskab"),
     ]
     for from_addr, ecf_host, expected_court in emails:
         email = make_court_email(from_addr, ["relay1.uscourts.gov", ecf_host])
