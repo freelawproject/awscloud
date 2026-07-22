@@ -11,7 +11,6 @@ use serde_json::{
     json,
     Value,
 };
-use serial_test::serial;
 use std::future::Future;
 use wiremock::matchers::method;
 use wiremock::{
@@ -48,7 +47,6 @@ fn spam_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_spam_failure() {
     let event = spam_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -64,7 +62,6 @@ fn virus_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_virus_failure() {
     let event = virus_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -80,7 +77,6 @@ fn spf_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_spf_failure() {
     let event = spf_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -96,7 +92,6 @@ fn dkim_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_dkim_failure() {
     let event = dkim_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -112,7 +107,6 @@ fn dmarc_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_dmarc_failure() {
     let event = dmarc_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -124,7 +118,6 @@ async fn test_dmarc_failure() {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_multiple_domains_failed() {
     let no_valid_emails = [
         "prvs=144d0cba7=sender@example.com",
@@ -139,7 +132,6 @@ async fn test_multiple_domains_failed() {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_multiple_domains_success() {
     let event = spam_failure_ses_event();
     with_env(&[], async {
@@ -161,7 +153,6 @@ async fn test_multiple_domains_success() {
 }
 
 #[test]
-#[serial]
 fn test_get_cl_court_id_using_mapping() {
     for (pacer_id, expected_cl) in PACER_TO_CL_IDS {
         let email = make_court_email(
@@ -208,7 +199,6 @@ fn make_court_email(from_addr: &str, received_hosts: &[&str]) -> SimpleEmailMess
 /// A txsb NEF arrives from the shared txs.uscourts.gov domain; the ECF
 /// database host in the Received headers must reassign it to txsb.
 #[test]
-#[serial]
 fn test_ecf_host_overrides_shared_domain_bankruptcy() {
     let email = make_court_email(
         "BKECF_LiveDB@txs.uscourts.gov",
@@ -220,7 +210,6 @@ fn test_ecf_host_overrides_shared_domain_bankruptcy() {
 /// A txsd NEF from the shared txs.uscourts.gov domain must still map to
 /// txsd (the majority case for the shared domain).
 #[test]
-#[serial]
 fn test_ecf_host_confirms_shared_domain_district() {
     let email = make_court_email(
         "ecf_txsd@txs.uscourts.gov",
@@ -231,7 +220,6 @@ fn test_ecf_host_confirms_shared_domain_district() {
 
 /// When the From domain and the ECF host agree, behavior is unchanged.
 #[test]
-#[serial]
 fn test_ecf_host_agreement_keeps_court() {
     let email = make_court_email(
         "cacd_ecfmail@cacd.uscourts.gov",
@@ -246,7 +234,6 @@ fn test_ecf_host_agreement_keeps_court() {
 /// but both sides resolve to the same CL court via pacer_to_cl_ids, so no
 /// mismatch may be reported to Sentry.
 #[test]
-#[serial]
 fn test_ecf_host_agreement_via_pacer_mapping_is_not_a_mismatch() {
     let emails = [
         (
@@ -277,7 +264,6 @@ fn test_ecf_host_agreement_via_pacer_mapping_is_not_a_mismatch() {
 /// A disagreement on a domain outside the shared-domain set keeps the
 /// From-derived court and reports the mismatch to Sentry.
 #[test]
-#[serial]
 fn test_ecf_host_mismatch_on_non_shared_domain_logs_error() {
     let email = make_court_email(
         "cacd_ecfmail@cacd.uscourts.gov",
@@ -304,7 +290,6 @@ fn test_ecf_host_mismatch_on_non_shared_domain_logs_error() {
 /// Generic court mail relays under gtwy.dcn are not ECF database hosts
 /// and must not match, so behavior stays unchanged without an ECF host.
 #[test]
-#[serial]
 fn test_ecf_host_ignores_generic_gtwy_relays() {
     let email = make_court_email(
         "BKECF_LiveDB@txs.uscourts.gov",
@@ -317,7 +302,6 @@ fn test_ecf_host_ignores_generic_gtwy_relays() {
 /// The last match across the Received headers (closest to the
 /// originating server) wins over hosts stamped by later relays.
 #[test]
-#[serial]
 fn test_ecf_host_uses_earliest_received_header() {
     let email = make_court_email(
         "BKECF_LiveDB@txs.uscourts.gov",
@@ -331,7 +315,6 @@ fn valid_domain_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_valid_domain_failed() {
     let event = valid_domain_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -345,7 +328,6 @@ fn invalid_return_path_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 }
 
 #[tokio::test]
-#[serial]
 async fn test_invalid_return_path() {
     let event = invalid_return_path_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -383,7 +365,6 @@ fn texas_event() -> LambdaEvent<SimpleEmailEvent> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_success() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -429,7 +410,6 @@ async fn test_success() {
 /// Confirm that the court_id in the request uses the right value
 /// from map_email_to_cl_id
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_request_court_field_actual_value() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -466,7 +446,6 @@ async fn test_request_court_field_actual_value() {
 /// A bankruptcy NEF from the shared txs.uscourts.gov domain must be
 /// posted with the ECF-host court (txsb), not the district default.
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_request_court_field_uses_ecf_host_for_shared_domain() {
     let mut event = pacer_event_two();
     let mail = &mut event.payload.records[0].ses.mail;
@@ -508,7 +487,6 @@ async fn test_request_court_field_uses_ecf_host_for_shared_domain() {
 
 /// Confirm a scotus email is properly routed to the SCOTUS_EMAIL_ENDPOINT
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_scotus_email_request() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -549,7 +527,6 @@ async fn test_scotus_email_request() {
 
 /// Confirm a Texas email is properly routed to the TEXAS_EMAIL_ENDPOINT
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_texas_email_request() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -591,7 +568,6 @@ async fn test_texas_email_request() {
 /// Confirm that if an invalid court_id is sent to CL, an error event is
 /// sent to Sentry.
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_report_request_for_invalid_court() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -637,7 +613,6 @@ async fn test_report_request_for_invalid_court() {
 /// A SCOTUS email delivered to a plain @recap.email address is ignored to
 /// avoid double processing via the generic recap.email SES rule.
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_scotus_email_ignored_for_wrong_subscription() {
     let mut event = scotus_event();
     event.payload.records[0].ses.mail.destination = vec!["user@recap.email".to_string()];
@@ -673,7 +648,6 @@ async fn test_scotus_email_ignored_for_wrong_subscription() {
 /// A Texas email delivered to a plain @recap.email address is ignored to
 /// avoid double processing via the generic recap.email SES rule.
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_texas_email_ignored_for_wrong_subscription() {
     let mut event = texas_event();
     event.payload.records[0].ses.mail.destination = vec!["user@recap.email".to_string()];
@@ -707,7 +681,6 @@ async fn test_texas_email_ignored_for_wrong_subscription() {
 }
 
 #[test]
-#[serial]
 fn test_destination_list_matches_subscription() {
     let mut email = make_court_email("meow@meow.gov", &vec![][..]);
     email.headers.push(SimpleEmailHeader::builder()
@@ -724,7 +697,6 @@ fn test_destination_list_matches_subscription() {
 /// Confirm that if an invalid court_id in sub_domains_to_ignore is sent, a
 /// validation_domain_failure is sent.
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn test_ignore_messages_from_invalid_court_ids() {
     let mut event = pacer_event_one();
     event.payload.records[0].ses.mail.common_headers.from =
