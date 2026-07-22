@@ -1,0 +1,19 @@
+[package]
+name = "recap_email"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lambda_runtime = "1.0.1"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+sentry = { version = "0.36", default-features = false, features = ["backtrace", "contexts", "panic", "reqwest", "rustls"] }
+serde_json = "1.0.151"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[dev-dependencies]
+futures = "0.3"
+sentry = { version = "0.36", default-features = false, features = ["test"] }
+serial_test = "3"
+temp-env = { version = "0.3.6", features = ["async_closure"] }
+wiremock = "0.6"

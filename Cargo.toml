@@ -1,0 +1,3 @@
+[workspace]
+members = ["recap_email"]
+resolver = "3"
