@@ -1,11 +1,9 @@
 use lambda_runtime::{
-    Error,
-    LambdaEvent,
     run,
     service_fn,
     tracing,
+    Error,
 };
-use serde_json::Value;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -24,8 +22,8 @@ async fn main() -> Result<(), Error> {
 
     tracing::init_default_subscriber();
 
-    run(service_fn(|event: LambdaEvent<Value>| async move {
-        recap_email::app::handler(&event.payload).await
-    }))
+    run(service_fn(
+        recap_email::app::handler
+    ))
     .await
 }

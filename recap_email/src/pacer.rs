@@ -1,10 +1,9 @@
-use std::sync::LazyLock;
-
+use crate::app::get_ses_email_headers;
+use crate::utils::extract_address;
+use aws_lambda_events::ses::SimpleEmailMessage;
 use lambda_runtime::Error;
 use regex::Regex;
-use serde_json::Value;
-
-use crate::utils::extract_address;
+use std::sync::LazyLock;
 
 // Maps PACER ids to their CL equivalents
 pub const PACER_TO_CL_IDS: [(&str, &str); 9] = [
@@ -101,8 +100,8 @@ pub const SHARED_DOMAIN_COURTS: [(&str, &[&str]); 1] = [
 ///
 /// :return: The lowercase PACER court id, or None if no ECF database host is
 /// present (e.g. non-NEF mail from court staff or mailing lists).
-pub fn get_ecf_host_court(email: &Value) -> Option<String> {
-    let received = crate::app::get_ses_email_headers(email, "Received").join(" ");
+pub fn get_ecf_host_court(email: &SimpleEmailMessage) -> Option<String> {
+    let received = get_ses_email_headers(email, "Received").iter().filter_map(|v| v.clone()).collect::<Vec<_>>().join(" ");
     ECF_HOST_RE
         .captures_iter(&received)
         .last()
@@ -128,9 +127,8 @@ pub const DOMAIN_TO_SUBSCRIPTION_SUBDOMAIN: [(&str, &str); 2] = [
 /// :param email: Object containing email content and metadata.
 ///
 /// :return: CL Court ID.
-pub fn map_email_to_cl_id(email: &Value) -> Result<String, Error> {
-    let from_addr = email["common_headers"]["from"][0]
-        .as_str()
+pub fn map_email_to_cl_id(email: &SimpleEmailMessage) -> Result<String, Error> {
+    let from_addr = email.common_headers.from.first()
         .ok_or("email is missing common_headers.from")?;
     let full_domain = extract_address(from_addr)
         .split('@')
@@ -160,10 +158,9 @@ pub fn map_email_to_cl_id(email: &Value) -> Result<String, Error> {
             if shared_courts.contains(&ecf_court) {
                 return Ok(ecf_cl_court.to_string());
             }
-            let message_id = email["message_id"].as_str().unwrap_or("None");
             let error_message = format!(
                 "ECF host court mismatch: From-derived court '{pacer_id}' vs ECF host court \
-                 '{ecf_court}' - message_id: {message_id}"
+                 '{ecf_court}' - message_id: {}", email.message_id.clone().unwrap_or_default(),
             );
             sentry::with_scope(
                 |scope| scope.set_fingerprint(Some(&["ecf-host-court-mismatch"])),
@@ -178,10 +175,9 @@ pub fn map_email_to_cl_id(email: &Value) -> Result<String, Error> {
         .map(|(_, cl_id)| *cl_id)
         .unwrap_or(full_domain);
     if maybe_cl_id == "texas" {
-        let subject = email["common_headers"]["subject"]
-            .as_str()
+        let subject = email.common_headers.subject.clone()
             .ok_or("email is missing common_headers.subject")?;
-        return Ok(get_tx_court_id_from_subject(subject)?.to_string());
+        return Ok(get_tx_court_id_from_subject(&subject)?.to_string());
     }
     Ok(maybe_cl_id.to_string())
 }

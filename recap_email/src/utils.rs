@@ -45,8 +45,8 @@ where
     f().await
 }
 
-pub fn extract_address(header_value: &str) -> &str {
-    let value = header_value.trim();
+pub fn extract_address(email: &str) -> &str {
+    let value = email.trim();
     match value.rfind('<') {
         Some(start) => {
             let rest = &value[start + 1..];

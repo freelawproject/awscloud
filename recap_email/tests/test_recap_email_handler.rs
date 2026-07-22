@@ -1,16 +1,18 @@
-use std::future::Future;
-
+use aws_lambda_events::ses::{SimpleEmailCommonHeaders, SimpleEmailEvent, SimpleEmailHeader, SimpleEmailMessage, SimpleEmailReceipt, SimpleEmailService};
+use chrono::{DateTime, Local, Utc};
+use lambda_runtime::{Context, LambdaEvent};
 use recap_email::app;
 use recap_email::app::destination_matches_subscription;
 use recap_email::pacer::{
-    PACER_TO_CL_IDS,
     get_ecf_host_court,
+    PACER_TO_CL_IDS,
 };
 use serde_json::{
-    Value,
     json,
+    Value,
 };
 use serial_test::serial;
+use std::future::Future;
 use wiremock::matchers::method;
 use wiremock::{
     Mock,
@@ -18,9 +20,9 @@ use wiremock::{
     ResponseTemplate,
 };
 
-fn load_event(name: &str) -> Value {
+fn load_event(name: &str) -> LambdaEvent<SimpleEmailEvent> {
     let path = format!("{}/../cl/events/{}", env!("CARGO_MANIFEST_DIR"), name);
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    LambdaEvent::new(serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap(), Context::default())
 }
 
 async fn with_env<T>(vars: &[(&str, &str)], f: impl Future<Output = T>) -> T {
@@ -41,7 +43,7 @@ async fn with_env<T>(vars: &[(&str, &str)], f: impl Future<Output = T>) -> T {
     temp_env::async_with_vars(all_vars, f).await
 }
 
-fn spam_failure_ses_event() -> Value {
+fn spam_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-spam-failure.json")
 }
 
@@ -49,15 +51,15 @@ fn spam_failure_ses_event() -> Value {
 #[serial]
 async fn test_spam_failure() {
     let event = spam_failure_ses_event();
-    let response = with_env(&[], app::handler(&event)).await.unwrap();
-    let data: Value = serde_json::from_str(response["body"].as_str().unwrap()).unwrap();
+    let response = with_env(&[], app::handler(event)).await.unwrap();
+    let data = &response["body"];
 
     assert_eq!(response["statusCode"], 424);
-    assert!(data.get("spam_verdict").is_some());
-    assert_eq!(data["spam_verdict"]["status"], "FAILED");
+    assert!(data.get("spamVerdict").is_some());
+    assert_eq!(data["spamVerdict"]["status"], "FAILED");
 }
 
-fn virus_failure_ses_event() -> Value {
+fn virus_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-virus-failure.json")
 }
 
@@ -65,15 +67,15 @@ fn virus_failure_ses_event() -> Value {
 #[serial]
 async fn test_virus_failure() {
     let event = virus_failure_ses_event();
-    let response = with_env(&[], app::handler(&event)).await.unwrap();
-    let data: Value = serde_json::from_str(response["body"].as_str().unwrap()).unwrap();
+    let response = with_env(&[], app::handler(event)).await.unwrap();
+    let data = &response["body"];
 
     assert_eq!(response["statusCode"], 424);
-    assert!(data.get("virus_verdict").is_some());
-    assert_eq!(data["virus_verdict"]["status"], "FAILED");
+    assert!(data.get("virusVerdict").is_some());
+    assert_eq!(data["virusVerdict"]["status"], "FAILED");
 }
 
-fn spf_failure_ses_event() -> Value {
+fn spf_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-spf-failure.json")
 }
 
@@ -81,15 +83,15 @@ fn spf_failure_ses_event() -> Value {
 #[serial]
 async fn test_spf_failure() {
     let event = spf_failure_ses_event();
-    let response = with_env(&[], app::handler(&event)).await.unwrap();
-    let data: Value = serde_json::from_str(response["body"].as_str().unwrap()).unwrap();
+    let response = with_env(&[], app::handler(event)).await.unwrap();
+    let data = &response["body"];
 
     assert_eq!(response["statusCode"], 424);
-    assert!(data.get("spf_verdict").is_some());
-    assert_eq!(data["spf_verdict"]["status"], "FAILED");
+    assert!(data.get("spfVerdict").is_some());
+    assert_eq!(data["spfVerdict"]["status"], "FAILED");
 }
 
-fn dkim_failure_ses_event() -> Value {
+fn dkim_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-dkim-failure.json")
 }
 
@@ -97,15 +99,15 @@ fn dkim_failure_ses_event() -> Value {
 #[serial]
 async fn test_dkim_failure() {
     let event = dkim_failure_ses_event();
-    let response = with_env(&[], app::handler(&event)).await.unwrap();
-    let data: Value = serde_json::from_str(response["body"].as_str().unwrap()).unwrap();
+    let response = with_env(&[], app::handler(event)).await.unwrap();
+    let data = &response["body"];
 
     assert_eq!(response["statusCode"], 424);
-    assert!(data.get("dkim_verdict").is_some());
-    assert_eq!(data["dkim_verdict"]["status"], "FAILED");
+    assert!(data.get("dkimVerdict").is_some());
+    assert_eq!(data["dkimVerdict"]["status"], "FAILED");
 }
 
-fn dmarc_failure_ses_event() -> Value {
+fn dmarc_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-dmarc-failure.json")
 }
 
@@ -113,12 +115,12 @@ fn dmarc_failure_ses_event() -> Value {
 #[serial]
 async fn test_dmarc_failure() {
     let event = dmarc_failure_ses_event();
-    let response = with_env(&[], app::handler(&event)).await.unwrap();
-    let data: Value = serde_json::from_str(response["body"].as_str().unwrap()).unwrap();
+    let response = with_env(&[], app::handler(event)).await.unwrap();
+    let data = &response["body"];
 
     assert_eq!(response["statusCode"], 424);
-    assert!(data.get("dmarc_verdict").is_some());
-    assert_eq!(data["dmarc_verdict"]["status"], "FAILED");
+    assert!(data.get("dmarcVerdict").is_some());
+    assert_eq!(data["dmarcVerdict"]["status"], "FAILED");
 }
 
 #[tokio::test]
@@ -141,7 +143,7 @@ async fn test_multiple_domains_failed() {
 async fn test_multiple_domains_success() {
     let event = spam_failure_ses_event();
     with_env(&[], async {
-        app::handler(&event).await.unwrap();
+        app::handler(event).await.unwrap();
     })
     .await;
 
@@ -162,9 +164,9 @@ async fn test_multiple_domains_success() {
 #[serial]
 fn test_get_cl_court_id_using_mapping() {
     for (pacer_id, expected_cl) in PACER_TO_CL_IDS {
-        let email = json!({
-            "common_headers": {"from": [format!("ecfnotices@{pacer_id}.uscourts.gov")]}
-        });
+        let email = make_court_email(
+            &format!("ecfnotices@{pacer_id}.uscourts.gov"), &vec![][..],
+        );
         let result = app::map_email_to_cl_id(&email).unwrap();
         assert_eq!(
             result, expected_cl,
@@ -175,23 +177,32 @@ fn test_get_cl_court_id_using_mapping() {
 
 /// Build a minimal email object with Received headers listed from the
 /// latest relay down to the originating server, as in a real message.
-fn make_court_email(from_addr: &str, received_hosts: &[&str]) -> Value {
-    json!({
-        "message_id": "test-ecf-host-message-id",
-        "common_headers": {"from": [from_addr]},
-        "headers": received_hosts
+fn make_court_email(from_addr: &str, received_hosts: &[&str]) -> SimpleEmailMessage {
+    let now = Local::now();
+    SimpleEmailMessage::builder()
+        .message_id("test-ecf-host-message-id".to_string())
+        .common_headers(SimpleEmailCommonHeaders::builder()
+            .from(vec![from_addr.to_string()])
+            .to(vec![])
+            .build()
+        )
+        .headers(received_hosts
             .iter()
             .map(|host| {
-                json!({
-                    "name": "Received",
-                    "value": format!(
+                SimpleEmailHeader::builder()
+                    .name("Received".to_string())
+                    .value(format!(
                         "from unknown (HELO {host}) ([156.119.56.176]) by \
                          icmecf202.gtwy.uscourts.gov with ESMTP; 28 Jun 2021 18:51:10 +0000"
-                    ),
-                })
+                    ))
+                    .build()
             })
-            .collect::<Vec<_>>(),
-    })
+            .collect()
+        )
+        .timestamp(DateTime::from_naive_utc_and_offset(now.naive_utc(), Utc))
+        .destination(vec![])
+        .headers_truncated(false)
+        .build()
 }
 
 /// A txsb NEF arrives from the shared txs.uscourts.gov domain; the ECF
@@ -315,7 +326,7 @@ fn test_ecf_host_uses_earliest_received_header() {
     assert_eq!(get_ecf_host_court(&email).as_deref(), Some("txsb"));
 }
 
-fn valid_domain_failure_ses_event() -> Value {
+fn valid_domain_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-valid-domain-failure.json")
 }
 
@@ -323,13 +334,13 @@ fn valid_domain_failure_ses_event() -> Value {
 #[serial]
 async fn test_valid_domain_failed() {
     let event = valid_domain_failure_ses_event();
-    let response = with_env(&[], app::handler(&event)).await.unwrap();
+    let response = with_env(&[], app::handler(event)).await.unwrap();
 
     assert_eq!(response["statusCode"], 424);
     assert_eq!(response["valid_domain"]["status"], "FAILED");
 }
 
-fn invalid_return_path_ses_event() -> Value {
+fn invalid_return_path_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-invalid-return-path.json")
 }
 
@@ -337,37 +348,37 @@ fn invalid_return_path_ses_event() -> Value {
 #[serial]
 async fn test_invalid_return_path() {
     let event = invalid_return_path_ses_event();
-    let response = with_env(&[], app::handler(&event)).await.unwrap();
+    let response = with_env(&[], app::handler(event)).await.unwrap();
 
     assert_eq!(response["statusCode"], 424);
     assert_eq!(response["valid_domain"]["status"], "FAILED");
 }
 
-fn ses_event() -> Value {
+fn ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses.json")
 }
 
-fn ses_gray_event() -> Value {
+fn ses_gray_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-dkim-gray.json")
 }
 
-fn pacer_event_one() -> Value {
+fn pacer_event_one() -> LambdaEvent<SimpleEmailEvent> {
     load_event("pacer-1.json")
 }
 
-fn pacer_event_two() -> Value {
+fn pacer_event_two() -> LambdaEvent<SimpleEmailEvent> {
     load_event("pacer-2.json")
 }
 
-fn pacer_event_three() -> Value {
+fn pacer_event_three() -> LambdaEvent<SimpleEmailEvent> {
     load_event("pacer-3.json")
 }
 
-fn scotus_event() -> Value {
+fn scotus_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("scotus-1.json")
 }
 
-fn texas_event() -> Value {
+fn texas_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("texas-1.json")
 }
 
@@ -378,7 +389,10 @@ async fn test_success() {
     Mock::given(method("POST"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(serde_json::to_string(&json!({"mail": {}, "receipt": {}})).unwrap()),
+                .set_body_json(SimpleEmailService::builder()
+                    .mail(make_court_email("aaaa@bbb.com", &[][..]))
+                    .receipt(SimpleEmailReceipt::default())
+                    .build()),
         )
         .mount(&server)
         .await;
@@ -399,10 +413,11 @@ async fn test_success() {
                 pacer_event_two(),
                 pacer_event_three(),
             ] {
-                let response = app::handler(&event).await.unwrap();
-                let data: Value = serde_json::from_str(response["body"].as_str().unwrap()).unwrap();
+                let response = app::handler(event).await.unwrap();
+                let data = &response["body"];
 
-                assert_eq!(response["statusCode"], 200);
+                assert_eq!(response["statusCode"].as_number().unwrap().as_i64().unwrap(), 200);
+                eprintln!("{data:#?}");
                 assert!(data.get("mail").is_some());
                 assert!(data.get("receipt").is_some());
             }
@@ -431,7 +446,7 @@ async fn test_request_court_field_actual_value() {
             ),
             ("AUTH_TOKEN", "************************"),
         ],
-        app::handler(&event),
+        app::handler(event),
     )
     .await
     .unwrap();
@@ -454,13 +469,12 @@ async fn test_request_court_field_actual_value() {
 #[serial]
 async fn test_request_court_field_uses_ecf_host_for_shared_domain() {
     let mut event = pacer_event_two();
-    let mail = &mut event["Records"][0]["ses"]["mail"];
-    mail["commonHeaders"]["from"] = json!(["<BKECF_LiveDB@txs.uscourts.gov>"]);
-    mail["headers"].as_array_mut().unwrap().push(json!({
-        "name": "Received",
-        "value": "from txsbdb.txsb.gtwy.dcn (localhost.localdomain [127.0.0.1]) by \
-                  txsbdb.txsb.gtwy.dcn with ESMTP; Mon, 28 Jun 2021 13:51:08 -0500",
-    }));
+    let mail = &mut event.payload.records[0].ses.mail;
+    mail.common_headers.from = vec!["<BKECF_LiveDB@txs.uscourts.gov>".to_string()];
+    mail.headers.push(SimpleEmailHeader::builder()
+        .name("Received".to_string())
+        .value("from txsbdb.txsb.gtwy.dcn (localhost.localdomain [127.0.0.1]) by txsbdb.txsb.gtwy.dcn with ESMTP; Mon, 28 Jun 2021 13:51:08 -0500".to_string())
+        .build());
 
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -476,7 +490,7 @@ async fn test_request_court_field_uses_ecf_host_for_shared_domain() {
             ),
             ("AUTH_TOKEN", "************************"),
         ],
-        app::handler(&event),
+        app::handler(event),
     )
     .await
     .unwrap();
@@ -511,7 +525,7 @@ async fn test_scotus_email_request() {
             ),
             ("AUTH_TOKEN", "************************"),
         ],
-        app::handler(&event),
+        app::handler(event),
     )
     .await
     .unwrap();
@@ -552,7 +566,7 @@ async fn test_texas_email_request() {
             ),
             ("AUTH_TOKEN", "************************"),
         ],
-        app::handler(&event),
+        app::handler(event),
     )
     .await
     .unwrap();
@@ -599,7 +613,7 @@ async fn test_report_request_for_invalid_court() {
         ],
         async {
             sentry::test::with_captured_events(|| {
-                futures::executor::block_on(app::handler(&event)).unwrap();
+                futures::executor::block_on(app::handler(event)).unwrap();
             })
         },
     )
@@ -626,7 +640,7 @@ async fn test_report_request_for_invalid_court() {
 #[serial]
 async fn test_scotus_email_ignored_for_wrong_subscription() {
     let mut event = scotus_event();
-    event["Records"][0]["ses"]["mail"]["destination"] = json!(["user@recap.email"]);
+    event.payload.records[0].ses.mail.destination = vec!["user@recap.email".to_string()];
 
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -646,7 +660,7 @@ async fn test_scotus_email_ignored_for_wrong_subscription() {
             ),
             ("AUTH_TOKEN", "************************"),
         ],
-        app::handler(&event),
+        app::handler(event),
     )
     .await
     .unwrap();
@@ -662,7 +676,7 @@ async fn test_scotus_email_ignored_for_wrong_subscription() {
 #[serial]
 async fn test_texas_email_ignored_for_wrong_subscription() {
     let mut event = texas_event();
-    event["Records"][0]["ses"]["mail"]["destination"] = json!(["user@recap.email"]);
+    event.payload.records[0].ses.mail.destination = vec!["user@recap.email".to_string()];
 
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -682,7 +696,7 @@ async fn test_texas_email_ignored_for_wrong_subscription() {
             ),
             ("AUTH_TOKEN", "************************"),
         ],
-        app::handler(&event),
+        app::handler(event),
     )
     .await
     .unwrap();
@@ -695,10 +709,12 @@ async fn test_texas_email_ignored_for_wrong_subscription() {
 #[test]
 #[serial]
 fn test_destination_list_matches_subscription() {
-    let email = json!({
-        "headers": [{"name": "Return-Path", "value": "no-reply@sc-us.gov"}],
-        "destination": ["bob@test.email", "notifications@scotus.recap.email"],
-    });
+    let mut email = make_court_email("meow@meow.gov", &vec![][..]);
+    email.headers.push(SimpleEmailHeader::builder()
+        .name("Return-Path".to_string())
+        .value("no-reply@sc-us.gov".to_string())
+        .build());
+    email.destination = vec!["bob@test.email".to_string(), "notifications@scotus.recap.email".to_string()];
 
     let m = destination_matches_subscription(&email);
 
@@ -711,8 +727,8 @@ fn test_destination_list_matches_subscription() {
 #[serial]
 async fn test_ignore_messages_from_invalid_court_ids() {
     let mut event = pacer_event_one();
-    event["Records"][0]["ses"]["mail"]["commonHeaders"]["from"] =
-        json!(["ecfnotices@updates.uscourts.gov"]);
+    event.payload.records[0].ses.mail.common_headers.from =
+        vec!["ecfnotices@updates.uscourts.gov".to_string()];
 
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -728,7 +744,7 @@ async fn test_ignore_messages_from_invalid_court_ids() {
             ),
             ("AUTH_TOKEN", "************************"),
         ],
-        app::handler(&event),
+        app::handler(event),
     )
     .await
     .unwrap();
