@@ -56,6 +56,19 @@ pub fn extract_address(email: &str) -> &str {
     }
 }
 
+pub fn extract_tld(email: &str) -> Option<&str> {
+    let address = extract_address(email);
+    let i = address.find('@')?;
+
+    let domain = &address[i + 1..];
+
+    let i = domain.char_indices()
+        .filter(|(_, c)| *c == '.')
+        .nth_back(1)
+        .map_or(0, |(i, _)| i + 1);
+    Some(&domain[i..])
+}
+
 fn decamelize_key(key: &str) -> String {
     let mut out = String::new();
     for c in key.chars() {

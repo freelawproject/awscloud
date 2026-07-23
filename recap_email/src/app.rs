@@ -4,11 +4,12 @@ pub use crate::pacer::{
     SUB_DOMAINS_TO_IGNORE,
 };
 use crate::utils;
-use crate::utils::extract_address;
-use aws_lambda_events::ses::{SimpleEmailEvent, SimpleEmailMessage, SimpleEmailReceipt};
+use crate::utils::{extract_address, extract_tld};
+use aws_lambda_events::ses::{SimpleEmailEvent, SimpleEmailMessage, SimpleEmailReceipt, SimpleEmailVerdict};
 use lambda_runtime::tracing::{error, warn};
 use lambda_runtime::{Error, LambdaEvent};
 use regex::Regex;
+use serde::Serialize;
 use serde_json::{
     json,
     Value,
@@ -21,6 +22,59 @@ use std::sync::{
 };
 use std::time::Duration;
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum ValidationFailure {
+    Spam,
+    Virus,
+    Spf,
+    Dkim,
+    Dmarc,
+    Domain,
+    EventSourceMissing,
+    Subscription,
+}
+
+impl std::fmt::Display for ValidationFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for ValidationFailure {}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Response {
+    pub status_code: u16,
+    pub failure: Result<(), ValidationFailure>,
+    pub body: Value,
+}
+
+impl Response {
+    pub fn success(body: Value) -> Response {
+        Self {
+            status_code: 200,
+            failure: Ok(()),
+            body,
+        }
+    }
+
+    pub fn source_missing_failure(body: Value) -> Response {
+        Self {
+            status_code: 415,
+            failure: Err(ValidationFailure::EventSourceMissing),
+            body,
+        }
+    }
+
+    pub fn dependency_failure(body: Value, failure: ValidationFailure) -> Response {
+        Self {
+            status_code: 424,
+            failure: Err(failure),
+            body,
+        }
+    }
+}
+
 pub static RECAP_EMAIL_ENDPOINT: LazyLock<RwLock<Option<String>>> =
     LazyLock::new(|| RwLock::new(None));
 pub static CL_ENDPOINT_MAP: LazyLock<RwLock<HashMap<String, Option<String>>>> =
@@ -31,41 +85,11 @@ pub static CL_ENDPOINT_MAP: LazyLock<RwLock<HashMap<String, Option<String>>>> =
 /// :param email: The SES email object.
 /// :param header_name: The name of the email header to extract.
 /// :return: A list of header values matching the requested header name.
-pub fn get_ses_email_headers(email: &SimpleEmailMessage, header_name: &str) -> Vec<Option<String>> {
+pub fn get_ses_email_headers<'a>(email: &'a SimpleEmailMessage, header_name: &str) -> Vec<Option<&'a str>> {
     email.headers.iter()
         .filter(|header| header.name.as_ref().is_some_and(|s| s.eq_ignore_ascii_case(header_name)))
-        .map(|header| header.value.clone())
+        .map(|header| header.value.as_ref().map(|s| s.as_str()))
         .collect()
-}
-
-pub fn get_spam_verdict(receipt: &SimpleEmailReceipt) -> Result<String, Error> {
-    receipt.spam_verdict.status.as_ref()
-        .map(|status| status.clone())
-        .ok_or_else(|| "receipt is missing spam_verdict.status".into())
-}
-
-pub fn get_virus_verdict(receipt: &SimpleEmailReceipt) -> Result<String, Error> {
-    receipt.virus_verdict.status.as_ref()
-        .map(|status| status.clone())
-        .ok_or_else(|| "receipt is missing virus_verdict.status".into())
-}
-
-pub fn get_spf_verdict(receipt: &SimpleEmailReceipt) -> Result<String, Error> {
-    receipt.spf_verdict.status.as_ref()
-        .map(|status| status.clone())
-        .ok_or_else(|| "receipt is missing spf_verdict.status".into())
-}
-
-pub fn get_dkim_verdict(receipt: &SimpleEmailReceipt) -> Result<String, Error> {
-    receipt.dkim_verdict.status.as_ref()
-        .map(|status| status.clone())
-        .ok_or_else(|| "receipt is missing dkim_verdict.status".into())
-}
-
-pub fn get_dmarc_verdict(receipt: &SimpleEmailReceipt) -> Result<String, Error> {
-    receipt.dmarc_verdict.status.as_ref()
-        .map(|status| status.clone())
-        .ok_or_else(|| "receipt is missing dmarc_verdict.status".into())
 }
 
 pub fn get_combined_log_message(email: &SimpleEmailMessage) -> String {
@@ -94,59 +118,47 @@ pub fn check_valid_domain(email_address: &str) -> bool {
     CL_ENDPOINT_MAP.read().unwrap().contains_key(&tld)
 }
 
-pub fn get_valid_domain_verdict(email: &SimpleEmailMessage) -> &'static str {
+pub fn is_valid_domain(email: &SimpleEmailMessage) -> bool {
     // Check all Return-Path headers comes from uscourts.gov
     for email_address in get_ses_email_headers(email, "Return-Path") {
         let Some(email_address) = email_address.as_deref() else {
             continue;
         };
         if !check_valid_domain(email_address) {
-            return "FAILED";
+            return false;
         }
     }
-    "PASS"
+    true
 }
 
-pub fn validation_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt, verdict: String) -> Value {
+pub fn validation_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt, failure: ValidationFailure) -> Response {
     error!(
-        "{} failed with spam verdict {verdict}",
+        "{} failed with spam verdict {failure:?}",
         get_combined_log_message(email)
     );
-    json!({
-        "statusCode": 424,
-        "body": receipt,
-    })
+    Response {
+        status_code: 424,
+        failure: Err(failure),
+        body: serde_json::to_value(receipt).unwrap(),
+    }
 }
 
-pub fn validation_domain_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt, verdict: &str) -> Value {
+pub fn validation_domain_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt) -> Response {
     error!(
-        "{} failed with valid domain verdict {verdict}",
+        "{} failed domain validation.",
         get_combined_log_message(email)
     );
-    json!({
-        "statusCode": 424,
-        "valid_domain": {"status": "FAILED"},
-        "body": receipt,
-    })
+    Response::dependency_failure(serde_json::to_value(receipt).unwrap(), ValidationFailure::Domain)
 }
 
 /// Return the registrable domain from the email's Return-Path header,
 /// or None if no Return-Path is present or parseable.
-pub fn get_source_domain(email: &SimpleEmailMessage) -> Option<String> {
+pub fn get_source_domain(email: &SimpleEmailMessage) -> Option<&str> {
     for email_address in get_ses_email_headers(email, "Return-Path") {
-        let Some(email_address) = email_address.as_deref() else {
+        let Some(email_address) = email_address else {
             continue;
         };
-        let parts: Vec<&str> = extract_address(email_address).split('@').collect();
-        if parts.len() != 2 {
-            continue;
-        }
-        let labels: Vec<&str> = parts[1].split('.').collect();
-        return Some(
-            labels[labels.len().saturating_sub(2)..]
-                .join(".")
-                .to_lowercase(),
-        );
+        return extract_tld(email_address);
     }
     None
 }
@@ -184,17 +196,17 @@ pub fn destination_matches_subscription(email: &SimpleEmailMessage) -> bool {
     false
 }
 
-pub fn ignore_wrong_subscription(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt) -> Value {
+pub fn ignore_wrong_subscription(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt) -> Response {
     warn!(
         "{} ignored — destination does not match the required subscription subdomain for its \
          source domain.",
         get_combined_log_message(email)
     );
-    json!({
-        "statusCode": 200,
-        "subscription": {"status": "IGNORED"},
-        "body": receipt,
-    })
+    Response {
+        status_code: 200,
+        failure: Err(ValidationFailure::Subscription),
+        body: serde_json::to_value(receipt).unwrap(),
+    }
 }
 
 static INVALID_PK_RE: LazyLock<Regex> =
@@ -238,17 +250,15 @@ pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_
 /// the email request should be sent.
 pub fn get_cl_endpoint(email: &SimpleEmailMessage) -> Option<String> {
     for email_address in get_ses_email_headers(email, "Return-Path") {
-        let Some(email_address) = email_address.as_deref() else {
+        let Some(email_address) = email_address else {
             continue;
         };
-        let domain = match extract_address(email_address).split('@').nth(1) {
-            Some(domain) => domain,
-            None => continue,
-        };
-        let labels: Vec<&str> = domain.split('.').collect();
-        let tld = labels[labels.len().saturating_sub(2)..].join(".");
 
-        if let Some(endpoint) = CL_ENDPOINT_MAP.read().unwrap().get(&tld) {
+        let Some(tld) = extract_tld(email_address) else {
+            continue;
+        };
+
+        if let Some(endpoint) = CL_ENDPOINT_MAP.read().unwrap().get(tld) {
             return endpoint.clone();
         }
     }
@@ -264,7 +274,7 @@ pub async fn send_to_court_listener(
     email: &SimpleEmailMessage,
     receipt: &SimpleEmailReceipt,
     court_id: &str,
-) -> Result<Value, Error> {
+) -> Result<Response, Error> {
     utils::retry(is_retryable, 5, 10, 3, || async {
         println!(
             "{} sending to Court Listener API.",
@@ -304,15 +314,30 @@ pub async fn send_to_court_listener(
 
         println!("Got status_code={status_code} and content {response_json}");
 
-        Ok(json!({
-            "statusCode": 200,
-            "body": response_json,
-        }))
+        Ok(Response {
+            status_code: 200,
+            failure: Ok(()),
+            body: response_json,
+        })
     })
     .await
 }
 
-pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Value, Error> {
+fn verdict_pass(verdict: &SimpleEmailVerdict) -> bool {
+    match &verdict.status {
+        Some(status) => status == "PASS",
+        None => true,
+    }
+}
+
+fn verdict_pass_or_gray(verdict: &SimpleEmailVerdict) -> bool {
+    match &verdict.status {
+        Some(status) => status == "PASS" || status == "GRAY",
+        None => true,
+    }
+}
+
+pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Response, Error> {
     let recap_email_endpoint = env::var("RECAP_EMAIL_ENDPOINT").ok();
     *RECAP_EMAIL_ENDPOINT.write().unwrap() = recap_email_endpoint.clone();
     let scotus_email_endpoint = env::var("SCOTUS_EMAIL_ENDPOINT").ok();
@@ -326,45 +351,42 @@ pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Value, Erro
 
     let Some(ses_record) = event.payload.records.first().map(|r| &r.ses) else {
         let body = json!({"message": "PACER email receipt requires aws:ses eventSource."});
-        return Ok(json!({
-            "statusCode": 415,
-            "body": body.to_string(),
-        }));
+
+        return Ok(Response::source_missing_failure(body));
     };
 
-    type VerdictFn = fn(&SimpleEmailReceipt) -> Result<String, Error>;
-    let tests: [VerdictFn; 2] = [
-        // NOTE - SPAM verdict failed with some test emails.
-        get_spam_verdict,
-        get_virus_verdict,
-    ];
-    for test in tests {
-        let verdict = test(&ses_record.receipt)?;
-        if verdict != "PASS" {
-            return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, verdict));
-        }
+    if !verdict_pass(&ses_record.receipt.spam_verdict) {
+        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Spam));
     }
 
-    let gray_or_pass_tests: [VerdictFn; 3] = [get_spf_verdict, get_dmarc_verdict, get_dkim_verdict];
-    for test in gray_or_pass_tests {
-        let verdict = test(&ses_record.receipt)?;
-        if verdict != "PASS" && verdict != "GRAY" {
-            return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, verdict));
-        }
+    if !verdict_pass(&ses_record.receipt.virus_verdict) {
+        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Virus));
     }
 
-    let domain_verdict = get_valid_domain_verdict(&ses_record.mail);
-    // Check domain is valid (comes from uscourts.gov)
-    // Ignore messages that are not from courts, such as updates.uscourts.gov
-    if domain_verdict != "PASS" {
-        return Ok(validation_domain_failure(&ses_record.mail, &ses_record.receipt, domain_verdict));
+    if !verdict_pass_or_gray(&ses_record.receipt.spf_verdict) {
+        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Spf));
     }
+
+    if !verdict_pass_or_gray(&ses_record.receipt.dmarc_verdict) {
+        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Dmarc));
+    }
+
+    if !verdict_pass_or_gray(&ses_record.receipt.dkim_verdict) {
+        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Dkim));
+    }
+
+    if !is_valid_domain(&ses_record.mail) {
+        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Domain));
+    }
+
     if !destination_matches_subscription(&ses_record.mail) {
         return Ok(ignore_wrong_subscription(&ses_record.mail, &ses_record.receipt));
     }
+
     let court_id = map_email_to_cl_id(&ses_record.mail)?;
     if SUB_DOMAINS_TO_IGNORE.contains(&court_id.as_str()) {
-        return Ok(validation_domain_failure(&ses_record.mail, &ses_record.receipt, domain_verdict));
+        return Ok(validation_domain_failure(&ses_record.mail, &ses_record.receipt));
     }
+
     send_to_court_listener(&ses_record.mail, &ses_record.receipt, &court_id).await
 }

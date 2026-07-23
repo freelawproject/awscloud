@@ -1375,6 +1375,7 @@ dependencies = [
  "regex",
  "reqwest",
  "sentry",
+ "serde",
  "serde_json",
  "serial_test",
  "temp-env",

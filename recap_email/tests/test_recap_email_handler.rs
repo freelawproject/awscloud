@@ -2,7 +2,7 @@ use aws_lambda_events::ses::{SimpleEmailCommonHeaders, SimpleEmailEvent, SimpleE
 use chrono::{DateTime, Local, Utc};
 use lambda_runtime::{Context, LambdaEvent};
 use recap_email::app;
-use recap_email::app::destination_matches_subscription;
+use recap_email::app::{destination_matches_subscription, ValidationFailure};
 use recap_email::pacer::{
     get_ecf_host_court,
     PACER_TO_CL_IDS,
@@ -50,9 +50,9 @@ fn spam_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 async fn test_spam_failure() {
     let event = spam_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
-    let data = &response["body"];
+    let data = &response.body;
 
-    assert_eq!(response["statusCode"], 424);
+    assert_eq!(response.status_code, 424);
     assert!(data.get("spamVerdict").is_some());
     assert_eq!(data["spamVerdict"]["status"], "FAILED");
 }
@@ -65,9 +65,9 @@ fn virus_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 async fn test_virus_failure() {
     let event = virus_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
-    let data = &response["body"];
+    let data = &response.body;
 
-    assert_eq!(response["statusCode"], 424);
+    assert_eq!(response.status_code, 424);
     assert!(data.get("virusVerdict").is_some());
     assert_eq!(data["virusVerdict"]["status"], "FAILED");
 }
@@ -80,9 +80,9 @@ fn spf_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 async fn test_spf_failure() {
     let event = spf_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
-    let data = &response["body"];
+    let data = &response.body;
 
-    assert_eq!(response["statusCode"], 424);
+    assert_eq!(response.status_code, 424);
     assert!(data.get("spfVerdict").is_some());
     assert_eq!(data["spfVerdict"]["status"], "FAILED");
 }
@@ -95,9 +95,9 @@ fn dkim_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 async fn test_dkim_failure() {
     let event = dkim_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
-    let data = &response["body"];
+    let data = &response.body;
 
-    assert_eq!(response["statusCode"], 424);
+    assert_eq!(response.status_code, 424);
     assert!(data.get("dkimVerdict").is_some());
     assert_eq!(data["dkimVerdict"]["status"], "FAILED");
 }
@@ -110,9 +110,9 @@ fn dmarc_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
 async fn test_dmarc_failure() {
     let event = dmarc_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
-    let data = &response["body"];
+    let data = &response.body;
 
-    assert_eq!(response["statusCode"], 424);
+    assert_eq!(response.status_code, 424);
     assert!(data.get("dmarcVerdict").is_some());
     assert_eq!(data["dmarcVerdict"]["status"], "FAILED");
 }
@@ -319,8 +319,8 @@ async fn test_valid_domain_failed() {
     let event = valid_domain_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
 
-    assert_eq!(response["statusCode"], 424);
-    assert_eq!(response["valid_domain"]["status"], "FAILED");
+    assert_eq!(response.status_code, 424);
+    assert_eq!(response.failure, Err(ValidationFailure::Domain));
 }
 
 fn invalid_return_path_ses_event() -> LambdaEvent<SimpleEmailEvent> {
@@ -332,8 +332,8 @@ async fn test_invalid_return_path() {
     let event = invalid_return_path_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
 
-    assert_eq!(response["statusCode"], 424);
-    assert_eq!(response["valid_domain"]["status"], "FAILED");
+    assert_eq!(response.status_code, 424);
+    assert_eq!(response.failure, Err(ValidationFailure::Domain));
 }
 
 fn ses_event() -> LambdaEvent<SimpleEmailEvent> {
@@ -395,9 +395,9 @@ async fn test_success() {
                 pacer_event_three(),
             ] {
                 let response = app::handler(event).await.unwrap();
-                let data = &response["body"];
+                let data = &response.body;
 
-                assert_eq!(response["statusCode"].as_number().unwrap().as_i64().unwrap(), 200);
+                assert_eq!(response.status_code, 200);
                 eprintln!("{data:#?}");
                 assert!(data.get("mail").is_some());
                 assert!(data.get("receipt").is_some());
@@ -430,7 +430,7 @@ async fn test_request_court_field_actual_value() {
     )
     .await
     .unwrap();
-    assert_eq!(response["statusCode"], 200);
+    assert_eq!(response.status_code, 200);
 
     // Retrieve the request that made by send_to_court_listener
     let requests = server.received_requests().await.unwrap();
@@ -473,7 +473,7 @@ async fn test_request_court_field_uses_ecf_host_for_shared_domain() {
     )
     .await
     .unwrap();
-    assert_eq!(response["statusCode"], 200);
+    assert_eq!(response.status_code, 200);
 
     let requests = server.received_requests().await.unwrap();
     let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
@@ -507,7 +507,7 @@ async fn test_scotus_email_request() {
     )
     .await
     .unwrap();
-    assert_eq!(response["statusCode"], 200);
+    assert_eq!(response.status_code, 200);
 
     // Retrieve the request that made by send_to_court_listener
     let requests = server.received_requests().await.unwrap();
@@ -547,7 +547,7 @@ async fn test_texas_email_request() {
     )
     .await
     .unwrap();
-    assert_eq!(response["statusCode"], 200);
+    assert_eq!(response.status_code, 200);
 
     // Retrieve the request that made by send_to_court_listener
     let requests = server.received_requests().await.unwrap();
@@ -640,8 +640,8 @@ async fn test_scotus_email_ignored_for_wrong_subscription() {
     .await
     .unwrap();
 
-    assert_eq!(response["statusCode"], 200);
-    assert_eq!(response["subscription"]["status"], "IGNORED");
+    assert_eq!(response.status_code, 200);
+    assert_eq!(response.failure, Err(ValidationFailure::Subscription));
     assert_eq!(server.received_requests().await.unwrap().len(), 0);
 }
 
@@ -675,8 +675,8 @@ async fn test_texas_email_ignored_for_wrong_subscription() {
     .await
     .unwrap();
 
-    assert_eq!(response["statusCode"], 200);
-    assert_eq!(response["subscription"]["status"], "IGNORED");
+    assert_eq!(response.status_code, 200);
+    assert_eq!(response.failure, Err(ValidationFailure::Subscription));
     assert_eq!(server.received_requests().await.unwrap().len(), 0);
 }
 
@@ -720,6 +720,6 @@ async fn test_ignore_messages_from_invalid_court_ids() {
     )
     .await
     .unwrap();
-    assert_eq!(response["statusCode"], 424);
-    assert_eq!(response["valid_domain"]["status"], "FAILED");
+    assert_eq!(response.status_code, 424);
+    assert_eq!(response.failure, Err(ValidationFailure::Domain));
 }
