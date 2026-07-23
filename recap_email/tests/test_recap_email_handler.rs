@@ -2,11 +2,8 @@ use aws_lambda_events::ses::{SimpleEmailCommonHeaders, SimpleEmailEvent, SimpleE
 use chrono::{DateTime, Local, Utc};
 use lambda_runtime::{Context, LambdaEvent};
 use recap_email::app;
-use recap_email::app::{destination_matches_subscription, ValidationFailure};
-use recap_email::pacer::{
-    get_ecf_host_court,
-    PACER_TO_CL_IDS,
-};
+use recap_email::app::{EndpointMap, ValidationFailure};
+use recap_email::pacer::EmailMap;
 use serde_json::{
     json,
     Value,
@@ -119,6 +116,7 @@ async fn test_dmarc_failure() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_domains_failed() {
+    let endpoint_map = EndpointMap::default();
     let no_valid_emails = [
         "prvs=144d0cba7=sender@example.com",
         "prvs=144d0cba7=sender@.test.example.com",
@@ -127,12 +125,13 @@ async fn test_multiple_domains_failed() {
     ];
 
     for email in no_valid_emails {
-        assert!(!app::check_valid_domain(email));
+        assert!(!endpoint_map.check_valid_domain(email));
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_domains_success() {
+    let endpoint_map = EndpointMap::default();
     let event = spam_failure_ses_event();
     with_env(&[], async {
         app::handler(event).await.unwrap();
@@ -148,17 +147,18 @@ async fn test_multiple_domains_success() {
     ];
 
     for email in valid_emails {
-        assert!(app::check_valid_domain(email));
+        assert!(endpoint_map.check_valid_domain(email));
     }
 }
 
 #[test]
 fn test_get_cl_court_id_using_mapping() {
-    for (pacer_id, expected_cl) in PACER_TO_CL_IDS {
+    let email_map = EmailMap::default();
+    for (pacer_id, expected_cl) in email_map.pacer_to_cl_id.clone() {
         let email = make_court_email(
             &format!("ecfnotices@{pacer_id}.uscourts.gov"), &vec![][..],
         );
-        let result = app::map_email_to_cl_id(&email).unwrap();
+        let result = email_map.email_to_cl_id(&email).unwrap();
         assert_eq!(
             result, expected_cl,
             "For PACER id '{pacer_id}', expected CL id '{expected_cl}' but got '{result}'."
@@ -200,32 +200,35 @@ fn make_court_email(from_addr: &str, received_hosts: &[&str]) -> SimpleEmailMess
 /// database host in the Received headers must reassign it to txsb.
 #[test]
 fn test_ecf_host_overrides_shared_domain_bankruptcy() {
+    let email_map = EmailMap::default();
     let email = make_court_email(
         "BKECF_LiveDB@txs.uscourts.gov",
         &["relay1.uscourts.gov", "txsbdb.txsb.gtwy.dcn"],
     );
-    assert_eq!(app::map_email_to_cl_id(&email).unwrap(), "txsb");
+    assert_eq!(email_map.email_to_cl_id(&email).unwrap(), "txsb");
 }
 
 /// A txsd NEF from the shared txs.uscourts.gov domain must still map to
 /// txsd (the majority case for the shared domain).
 #[test]
 fn test_ecf_host_confirms_shared_domain_district() {
+    let email_map = EmailMap::default();
     let email = make_court_email(
         "ecf_txsd@txs.uscourts.gov",
         &["relay1.uscourts.gov", "txsddb.txsd.gtwy.dcn"],
     );
-    assert_eq!(app::map_email_to_cl_id(&email).unwrap(), "txsd");
+    assert_eq!(email_map.email_to_cl_id(&email).unwrap(), "txsd");
 }
 
 /// When the From domain and the ECF host agree, behavior is unchanged.
 #[test]
 fn test_ecf_host_agreement_keeps_court() {
+    let email_map = EmailMap::default();
     let email = make_court_email(
         "cacd_ecfmail@cacd.uscourts.gov",
         &["relay1.uscourts.gov", "cacddb.cacd.gtwy.dcn"],
     );
-    assert_eq!(app::map_email_to_cl_id(&email).unwrap(), "cacd");
+    assert_eq!(email_map.email_to_cl_id(&email).unwrap(), "cacd");
 }
 
 /// Courts like gas or mow use a From subdomain that differs from their
@@ -235,6 +238,7 @@ fn test_ecf_host_agreement_keeps_court() {
 /// mismatch may be reported to Sentry.
 #[test]
 fn test_ecf_host_agreement_via_pacer_mapping_is_not_a_mismatch() {
+    let email_map = EmailMap::default();
     let emails = [
         (
             "efile_support@gas.uscourts.gov",
@@ -255,7 +259,7 @@ fn test_ecf_host_agreement_via_pacer_mapping_is_not_a_mismatch() {
     for (from_addr, ecf_host, expected_court) in emails {
         let email = make_court_email(from_addr, &["relay1.uscourts.gov", ecf_host]);
         let events = sentry::test::with_captured_events(|| {
-            assert_eq!(app::map_email_to_cl_id(&email).unwrap(), expected_court);
+            assert_eq!(email_map.email_to_cl_id(&email).unwrap(), expected_court);
         });
         assert!(events.is_empty());
     }
@@ -265,12 +269,13 @@ fn test_ecf_host_agreement_via_pacer_mapping_is_not_a_mismatch() {
 /// From-derived court and reports the mismatch to Sentry.
 #[test]
 fn test_ecf_host_mismatch_on_non_shared_domain_logs_error() {
+    let email_map = EmailMap::default();
     let email = make_court_email(
         "cacd_ecfmail@cacd.uscourts.gov",
         &["relay1.uscourts.gov", "nysbdb.nysb.gtwy.dcn"],
     );
     let events = sentry::test::with_captured_events(|| {
-        assert_eq!(app::map_email_to_cl_id(&email).unwrap(), "cacd");
+        assert_eq!(email_map.email_to_cl_id(&email).unwrap(), "cacd");
     });
     let expected_error = "ECF host court mismatch: From-derived court 'cacd' vs ECF host court \
                           'nysb' - message_id: test-ecf-host-message-id";
@@ -291,12 +296,13 @@ fn test_ecf_host_mismatch_on_non_shared_domain_logs_error() {
 /// and must not match, so behavior stays unchanged without an ECF host.
 #[test]
 fn test_ecf_host_ignores_generic_gtwy_relays() {
+    let email_map = EmailMap::default();
     let email = make_court_email(
         "BKECF_LiveDB@txs.uscourts.gov",
         &["relay1.uscourts.gov", "smtp2-i.asbn.gtwy.dcn"],
     );
-    assert!(get_ecf_host_court(&email).is_none());
-    assert_eq!(app::map_email_to_cl_id(&email).unwrap(), "txsd");
+    assert!(EmailMap::get_ecf_host_court(&email).is_none());
+    assert_eq!(email_map.email_to_cl_id(&email).unwrap(), "txsd");
 }
 
 /// The last match across the Received headers (closest to the
@@ -307,7 +313,7 @@ fn test_ecf_host_uses_earliest_received_header() {
         "BKECF_LiveDB@txs.uscourts.gov",
         &["otherdb.other.gtwy.dcn", "txsbdb.txsb.gtwy.dcn"],
     );
-    assert_eq!(get_ecf_host_court(&email).as_deref(), Some("txsb"));
+    assert_eq!(EmailMap::get_ecf_host_court(&email).as_deref(), Some("txsb"));
 }
 
 fn valid_domain_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
@@ -525,7 +531,7 @@ async fn test_scotus_email_request() {
     );
 }
 
-/// Confirm a Texas email is properly routed to the TEXAS_EMAIL_ENDPOINT
+/// Confirm a Texas email is properly routed to the `TEXAS_EMAIL_ENDPOINT`
 #[tokio::test(flavor = "multi_thread")]
 async fn test_texas_email_request() {
     let server = MockServer::start().await;
@@ -684,6 +690,7 @@ async fn test_texas_email_ignored_for_wrong_subscription() {
 
 #[test]
 fn test_destination_list_matches_subscription() {
+    let email_map = EmailMap::default();
     let mut email = make_court_email("meow@meow.gov", &vec![][..]);
     email.headers.push(SimpleEmailHeader::builder()
         .name("Return-Path".to_string())
@@ -691,7 +698,7 @@ fn test_destination_list_matches_subscription() {
         .build());
     email.destination = vec!["bob@test.email".to_string(), "notifications@scotus.recap.email".to_string()];
 
-    let m = destination_matches_subscription(&email);
+    let m = email_map.destination_matches_subscription(&email);
 
     assert!(m);
 }

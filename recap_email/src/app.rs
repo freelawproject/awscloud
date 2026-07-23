@@ -1,14 +1,10 @@
-use crate::pacer::DOMAIN_TO_SUBSCRIPTION_SUBDOMAIN;
-pub use crate::pacer::{
-    map_email_to_cl_id,
-    SUB_DOMAINS_TO_IGNORE,
-};
+use crate::pacer::EmailMap;
 use crate::utils;
 use crate::utils::{extract_address, extract_tld};
 use aws_lambda_events::ses::{SimpleEmailEvent, SimpleEmailMessage, SimpleEmailReceipt, SimpleEmailVerdict};
 use lambda_runtime::tracing::{error, warn};
 use lambda_runtime::{Error, LambdaEvent};
-use regex::Regex;
+use regex::regex;
 use serde::Serialize;
 use serde_json::{
     json,
@@ -16,10 +12,6 @@ use serde_json::{
 };
 use std::collections::HashMap;
 use std::env;
-use std::sync::{
-    LazyLock,
-    RwLock,
-};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -78,10 +70,71 @@ impl Response {
     }
 }
 
-pub static RECAP_EMAIL_ENDPOINT: LazyLock<RwLock<Option<String>>> =
-    LazyLock::new(|| RwLock::new(None));
-pub static CL_ENDPOINT_MAP: LazyLock<RwLock<HashMap<String, Option<String>>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+pub struct EndpointMap {
+    recap_endpoint: Option<String>,
+    cl_endpoints: HashMap<String, Option<String>>,
+}
+
+impl Default for EndpointMap {
+    fn default() -> Self {
+        let recap_endpoint = env::var("RECAP_EMAIL_ENDPOINT").ok();
+        let scotus_email_endpoint = env::var("SCOTUS_EMAIL_ENDPOINT").ok();
+        let texas_email_endpoint = env::var("TEXAS_EMAIL_ENDPOINT").ok();
+        Self {
+            cl_endpoints: HashMap::from([
+                ("sc-us.gov".to_string(), scotus_email_endpoint),
+                ("fedcourts.us".to_string(), recap_endpoint.clone()),
+                ("uscourts.gov".to_string(), recap_endpoint.clone()),
+                ("txcourts.gov".to_string(), texas_email_endpoint),
+            ]),
+            recap_endpoint,
+        }
+    }
+}
+
+impl EndpointMap {
+    /// Determine the appropriate CourtListener API endpoint to route an SES
+    /// email.
+    ///
+    /// If no known domain match is found, the function defaults to the
+    /// [`self.recap_endpoint`].
+    #[must_use]
+    pub fn get_cl_endpoint(&self, email: &SimpleEmailMessage) -> Option<String> {
+        for email_address in get_ses_email_headers(email, "Return-Path") {
+            let Some(email_address) = email_address else {
+                continue;
+            };
+
+            let Some(tld) = extract_tld(email_address) else {
+                continue;
+            };
+
+            if let Some(endpoint) = self.cl_endpoints.get(tld) {
+                return endpoint.clone();
+            }
+        }
+        self.recap_endpoint.clone()
+    }
+
+    /// Check whether an email address is one we accept updates from.
+    #[must_use]
+    pub fn check_valid_domain(&self, email_address: &str) -> bool {
+        let domain = extract_address(email_address);
+        let Some(tld) = extract_tld(domain) else {
+            return false;
+        };
+
+        self.cl_endpoints.contains_key(tld)
+    }
+
+    #[must_use]
+    pub fn is_valid_domain(&self, email: &SimpleEmailMessage) -> bool {
+        // Check all Return-Path headers comes from uscourts.gov
+        get_ses_email_headers(email, "Return-Path").iter()
+            .filter_map(|v| *v)
+            .all(|email_address| self.check_valid_domain(email_address))
+    }
+}
 
 /// Extract values for the header with name [`header_name`] from an SES email payload.
 #[must_use]
@@ -104,33 +157,6 @@ pub fn get_combined_log_message(email: &SimpleEmailMessage) -> String {
         email.source,
         email.destination
     )
-}
-
-/// Check whether an email address is one we accept updates from.
-///
-/// # Panics
-/// Will panic if it fails to acquire a write lock on [`CL_ENDPOINT_MAP`].
-pub fn check_valid_domain(email_address: &str) -> bool {
-    let domain = extract_address(email_address);
-    let Some(tld) = extract_tld(domain) else {
-        return false;
-    };
-
-    CL_ENDPOINT_MAP.read().unwrap().contains_key(tld)
-}
-
-#[must_use]
-pub fn is_valid_domain(email: &SimpleEmailMessage) -> bool {
-    // Check all Return-Path headers comes from uscourts.gov
-    for email_address in get_ses_email_headers(email, "Return-Path") {
-        let Some(email_address) = email_address else {
-            continue;
-        };
-        if !check_valid_domain(email_address) {
-            return false;
-        }
-    }
-    true
 }
 
 /// Shorthand to log a given validation failure and construct a [`Response`] object.
@@ -174,37 +200,6 @@ pub fn get_source_domain(email: &SimpleEmailMessage) -> Option<&str> {
     None
 }
 
-/// Return `true` if the email should be processed, `false` if it should be
-/// ignored because its source domain requires a specific subscription
-/// subdomain (e.g., scotus.recap.email) but the destination does not use it.
-///
-/// Specifically, if any address in the email's destination list matches the
-/// expected destination for the given source domain, return True. Otherwise,
-/// return `false`. This lets us handle potential emails with multiple destinations
-/// correctly.
-#[must_use]
-pub fn destination_matches_subscription(email: &SimpleEmailMessage) -> bool {
-    let Some(source_domain) = get_source_domain(email) else { return true };
-    let required = match DOMAIN_TO_SUBSCRIPTION_SUBDOMAIN
-        .iter()
-        .find(|(domain, _)| *domain == source_domain)
-    {
-        Some((_, required)) => *required,
-        None => return true,
-    };
-    for destination in &email.destination {
-        let address = extract_address(destination);
-        let Some(dest_domain) = extract_tld(address) else {
-            continue;
-        };
-
-        if dest_domain == required || dest_domain.ends_with(&format!(".{required}")) {
-            return true;
-        }
-    }
-    false
-}
-
 /// Ensure that the destination of an email matches the subscription subdomain for its source
 /// domain.
 ///
@@ -224,12 +219,11 @@ pub fn ignore_wrong_subscription(email: &SimpleEmailMessage, receipt: &SimpleEma
     }
 }
 
-static INVALID_PK_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"Invalid pk "([^"]+)""#).unwrap());
-
 /// Checks if the response indicates an invalid court pk then send a report
 /// to Sentry.
 pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_id: &Option<String>) {
+    let invalid_pk_re = regex!(r#"Invalid pk "([^"]+)"#);
+
     if status_code != 400 {
         return;
     }
@@ -238,7 +232,7 @@ pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_
     let msgs = response_json["court"].as_array().unwrap_or(&empty);
     for msg in msgs {
         let Some(msg) = msg.as_str() else { continue };
-        let court_id = match INVALID_PK_RE.captures(msg) {
+        let court_id = match invalid_pk_re.captures(msg) {
             Some(captures) => captures[1].to_string(),
             None => continue,
         };
@@ -251,32 +245,6 @@ pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_
     }
 }
 
-/// Determine the appropriate CourtListener API endpoint to route an SES
-/// email.
-///
-/// If no known domain match is found, the function defaults to the
-/// [`RECAP_EMAIL_ENDPOINT`].
-///
-/// # Panics
-/// Will panic if a read lock cannot be acquired on [`CL_ENDPOINT_MAP`].
-#[must_use]
-pub fn get_cl_endpoint(email: &SimpleEmailMessage) -> Option<String> {
-    for email_address in get_ses_email_headers(email, "Return-Path") {
-        let Some(email_address) = email_address else {
-            continue;
-        };
-
-        let Some(tld) = extract_tld(email_address) else {
-            continue;
-        };
-
-        if let Some(endpoint) = CL_ENDPOINT_MAP.read().unwrap().get(tld) {
-            return endpoint.clone();
-        }
-    }
-    RECAP_EMAIL_ENDPOINT.read().unwrap().clone()
-}
-
 fn is_retryable(e: &Error) -> bool {
     e.downcast_ref::<reqwest::Error>()
         .is_some_and(|e| e.is_connect() || e.is_timeout() || e.is_status())
@@ -287,6 +255,7 @@ fn is_retryable(e: &Error) -> bool {
 /// # Errors
 /// Will return an error if the send attempt fails all retries.
 pub async fn send_to_court_listener(
+    endpoint_map: &EndpointMap,
     email: &SimpleEmailMessage,
     receipt: &SimpleEmailReceipt,
     court_id: &str,
@@ -296,7 +265,7 @@ pub async fn send_to_court_listener(
             "{} sending to Court Listener API.",
             get_combined_log_message(email)
         );
-        let endpoint = get_cl_endpoint(email).ok_or("no CourtListener endpoint configured")?;
+        let endpoint = endpoint_map.get_cl_endpoint(email).ok_or("no CourtListener endpoint configured")?;
 
         // DEV DOMAIN: http://host.docker.internal:8000
         let court_listener_response = reqwest::Client::new()
@@ -357,21 +326,9 @@ fn verdict_pass_or_gray(verdict: &SimpleEmailVerdict) -> bool {
 ///
 /// # Errors
 /// Will return an error if the email event fails validation for any reason.
-///
-/// # Panics
-/// Will panic if a write lock on the [`RECAP_EMAIL_ENDPOINT`] or [`CL_ENDPOINT_MAP`] globals cannot
-/// be acquired.
 pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Response, Error> {
-    let recap_email_endpoint = env::var("RECAP_EMAIL_ENDPOINT").ok();
-    (*RECAP_EMAIL_ENDPOINT.write().unwrap()).clone_from(&recap_email_endpoint);
-    let scotus_email_endpoint = env::var("SCOTUS_EMAIL_ENDPOINT").ok();
-    let texas_email_endpoint = env::var("TEXAS_EMAIL_ENDPOINT").ok();
-    *CL_ENDPOINT_MAP.write().unwrap() = HashMap::from([
-        ("sc-us.gov".to_string(), scotus_email_endpoint),
-        ("fedcourts.us".to_string(), recap_email_endpoint.clone()),
-        ("uscourts.gov".to_string(), recap_email_endpoint),
-        ("txcourts.gov".to_string(), texas_email_endpoint),
-    ]);
+    let endpoint_map = EndpointMap::default();
+    let email_map = EmailMap::default();
 
     let Some(ses_record) = event.payload.records.first().map(|r| &r.ses) else {
         let body = json!({"message": "PACER email receipt requires aws:ses eventSource."});
@@ -399,18 +356,18 @@ pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Response, E
         return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Dkim));
     }
 
-    if !is_valid_domain(&ses_record.mail) {
+    if !endpoint_map.is_valid_domain(&ses_record.mail) {
         return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Domain));
     }
 
-    if !destination_matches_subscription(&ses_record.mail) {
+    if !email_map.destination_matches_subscription(&ses_record.mail) {
         return Ok(ignore_wrong_subscription(&ses_record.mail, &ses_record.receipt));
     }
 
-    let court_id = map_email_to_cl_id(&ses_record.mail)?;
-    if SUB_DOMAINS_TO_IGNORE.contains(&court_id.as_str()) {
+    let court_id = email_map.email_to_cl_id(&ses_record.mail)?;
+    if email_map.ignored_subdomains.contains(&court_id.as_str()) {
         return Ok(validation_domain_failure(&ses_record.mail, &ses_record.receipt));
     }
 
-    send_to_court_listener(&ses_record.mail, &ses_record.receipt, &court_id).await
+    send_to_court_listener(&endpoint_map, &ses_record.mail, &ses_record.receipt, &court_id).await
 }
