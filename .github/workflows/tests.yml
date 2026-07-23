@@ -28,7 +28,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           cd cl
-          uv pip install --system -r recap_email/requirements.txt -r tests/requirements.txt
+          uv pip install --system -r recap_email/requirements.txt -r tames_creds_rotation/requirements.txt -r tests/requirements.txt
 
       - name: Run tests
         run: cd cl && python -m pytest tests/unit -v

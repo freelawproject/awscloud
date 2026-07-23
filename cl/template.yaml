@@ -31,6 +31,35 @@ Resources:
             Path: /recap-email
             Method: get
 
+  TamesCredsRotationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: tames_creds_rotation/
+      Handler: app.app.handler
+      Runtime: python3.11
+      Environment:
+        Variables:
+          SENTRY_DSN: ""
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:DescribeSecret
+                - secretsmanager:GetSecretValue
+                - secretsmanager:PutSecretValue
+                - secretsmanager:UpdateSecretVersionStage
+              Resource:
+                Fn::Sub: "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:TAMES_USER*"
+
+  # Allow Secrets Manager to invoke the rotation function.
+  TamesCredsRotationInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt: TamesCredsRotationFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: secretsmanager.amazonaws.com
+
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
@@ -47,3 +76,7 @@ Outputs:
     Description: "Implicit IAM Role created for the Free Look Email function"
     Value:
       Fn::GetAtt: RecapEmailFunctionRole.Arn
+  TamesCredsRotationFunction:
+    Description: "TAMES credentials rotation Lambda Function ARN"
+    Value:
+      Fn::GetAtt: TamesCredsRotationFunction.Arn

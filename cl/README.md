@@ -3,6 +3,7 @@
 This project contains source code and supporting files for a serverless application that you can deploy with the SAM CLI. It includes the following files and folders.
 
 - recap_email - Code for the application's Lambda function.
+- tames_creds_rotation - Secrets Manager rotation Lambda for the Texas CaseMail (TAMES) account.
 - events - Invocation events that you can use to invoke the function.
 - tests - Unit tests for the application code.
 - template.yaml - A template that defines the application's AWS resources.
@@ -109,6 +110,19 @@ cl$ python -m pytest tests/unit -v
 # Create the env variable AWS_SAM_STACK_NAME with the name of the stack we are testing
 cl$ AWS_SAM_STACK_NAME=<stack-name> python -m pytest tests/integration -v
 ```
+
+## TAMES credentials rotation
+
+`TamesCredsRotationFunction` is an [AWS Secrets Manager rotation function](https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotating-secrets.html) that rotates the Texas CaseMail (TAMES) credentials stored in the `TAMES_USER` secret. Each rotation creates a brand-new CaseMail account with an incremented numeric suffix (`CLTames_05` -> `CLTames_06`), verifies it can log in, and promotes the new credentials to `AWSCURRENT`.
+
+It is invoked by Secrets Manager (not API Gateway), so it can't be exercised with `sam local start-api`. Instead, an end-to-end harness deploys it to LocalStack and drives a real rotation:
+
+```bash
+cl/tames_creds_rotation$ docker compose up -d
+cl/tames_creds_rotation$ uv run test.py
+```
+
+**WARNING**: the harness runs the real rotation flow, which creates an actual account on casemail.txcourts.gov.
 
 ## Cleanup
 
