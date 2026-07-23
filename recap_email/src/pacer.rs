@@ -1,5 +1,5 @@
 use crate::app::{get_ses_email_headers, get_source_domain};
-use crate::utils::extract_address;
+use crate::utils::EmailAddress;
 use aws_lambda_events::ses::SimpleEmailMessage;
 use lambda_runtime::Error;
 use regex::regex;
@@ -97,16 +97,11 @@ impl EmailMap {
     /// # Errors
     /// Will return an error message if the email domain is not recognized.
     pub fn email_to_cl_id(&self, email: &SimpleEmailMessage) -> Result<String, Error> {
-        let from_addr = email.common_headers.from.first()
-            .ok_or("email is missing common_headers.from")?;
-        let full_domain = extract_address(from_addr)
-            .split('@')
-            .nth(1)
-            .ok_or("From address has no domain")?;
-        let parts: Vec<&str> = full_domain.split('.').collect();
-        let domain = parts[parts.len().saturating_sub(2)..].join(".");
+        let from_addr = EmailAddress::parse_str(email.common_headers.from.first()
+            .ok_or("email is missing common_headers.from")?).ok_or("Email parsing failed")?;
+        let domain = from_addr.domain();
         if domain == "fedcourts.us" || domain == "uscourts.gov" {
-            let pacer_id = parts[0];
+            let pacer_id = from_addr.subdomain();
             let pacer_id_lower = pacer_id.to_lowercase();
             let from_court = self.pacer_to_cl_id(pacer_id);
             let from_court_lower = self.pacer_to_cl_id(&pacer_id_lower);
@@ -135,7 +130,7 @@ impl EmailMap {
             }
             return Ok(from_court.to_string());
         }
-        let maybe_cl_id = self.domain_to_cl_id.get(full_domain).map(|v| *v).unwrap_or(full_domain);
+        let maybe_cl_id = self.domain_to_cl_id.get(from_addr.domain()).map(|v| *v).unwrap_or(from_addr.domain());
         if maybe_cl_id == "texas" {
             let subject = email.common_headers.subject.clone()
                 .ok_or("email is missing common_headers.subject")?;
@@ -160,9 +155,8 @@ impl EmailMap {
         };
 
         for destination in &email.destination {
-            let address = extract_address(destination);
-            let Some(i) = address.find('@') else { continue };
-            let dest_domain = &address[i + 1..].to_lowercase();
+            let Some(address) = EmailAddress::parse_str(destination) else { continue };
+            let dest_domain = &address.address().to_lowercase();
 
             if dest_domain == required || dest_domain.ends_with(&format!(".{required}")) {
                 return true;

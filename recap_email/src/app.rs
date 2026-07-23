@@ -1,6 +1,6 @@
 use crate::pacer::EmailMap;
 use crate::utils;
-use crate::utils::{extract_address, extract_tld};
+use crate::utils::EmailAddress;
 use aws_lambda_events::ses::{SimpleEmailEvent, SimpleEmailMessage, SimpleEmailReceipt, SimpleEmailVerdict};
 use lambda_runtime::tracing::{error, warn};
 use lambda_runtime::{Error, LambdaEvent};
@@ -101,15 +101,11 @@ impl EndpointMap {
     #[must_use]
     pub fn get_cl_endpoint(&self, email: &SimpleEmailMessage) -> Option<String> {
         for email_address in get_ses_email_headers(email, "Return-Path") {
-            let Some(email_address) = email_address else {
+            let Some(email_address) = email_address.and_then(EmailAddress::parse_str) else {
                 continue;
             };
 
-            let Some(tld) = extract_tld(email_address) else {
-                continue;
-            };
-
-            if let Some(endpoint) = self.cl_endpoints.get(tld) {
+            if let Some(endpoint) = self.cl_endpoints.get(email_address.domain()) {
                 return endpoint.clone();
             }
         }
@@ -119,12 +115,11 @@ impl EndpointMap {
     /// Check whether an email address is one we accept updates from.
     #[must_use]
     pub fn check_valid_domain(&self, email_address: &str) -> bool {
-        let domain = extract_address(email_address);
-        let Some(tld) = extract_tld(domain) else {
+        let Some(email) = EmailAddress::parse_str(email_address) else {
             return false;
         };
 
-        self.cl_endpoints.contains_key(tld)
+        self.cl_endpoints.contains_key(email.domain())
     }
 
     #[must_use]
@@ -192,10 +187,10 @@ pub fn validation_domain_failure(email: &SimpleEmailMessage, receipt: &SimpleEma
 #[must_use]
 pub fn get_source_domain(email: &SimpleEmailMessage) -> Option<&str> {
     for email_address in get_ses_email_headers(email, "Return-Path") {
-        let Some(email_address) = email_address else {
+        let Some(email_address) = email_address.and_then(EmailAddress::parse_str) else {
             continue;
         };
-        return extract_tld(email_address);
+        return Some(email_address.domain());
     }
     None
 }
