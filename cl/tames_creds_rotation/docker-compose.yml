@@ -1,0 +1,10 @@
+services:
+  localstack:
+    image: localstack/localstack:community-archive
+    container_name: tames-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: secretsmanager,lambda,iam
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
