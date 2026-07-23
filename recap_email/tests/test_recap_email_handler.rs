@@ -46,7 +46,7 @@ fn spam_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-spam-failure.json")
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_spam_failure() {
     let event = spam_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -61,7 +61,7 @@ fn virus_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-virus-failure.json")
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_virus_failure() {
     let event = virus_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -76,7 +76,7 @@ fn spf_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-spf-failure.json")
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_spf_failure() {
     let event = spf_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -106,7 +106,7 @@ fn dmarc_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-dmarc-failure.json")
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_dmarc_failure() {
     let event = dmarc_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -117,7 +117,7 @@ async fn test_dmarc_failure() {
     assert_eq!(data["dmarcVerdict"]["status"], "FAILED");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_domains_failed() {
     let no_valid_emails = [
         "prvs=144d0cba7=sender@example.com",
@@ -131,7 +131,7 @@ async fn test_multiple_domains_failed() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_domains_success() {
     let event = spam_failure_ses_event();
     with_env(&[], async {
@@ -314,7 +314,7 @@ fn valid_domain_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-valid-domain-failure.json")
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_valid_domain_failed() {
     let event = valid_domain_failure_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -327,7 +327,7 @@ fn invalid_return_path_ses_event() -> LambdaEvent<SimpleEmailEvent> {
     load_event("ses-invalid-return-path.json")
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_invalid_return_path() {
     let event = invalid_return_path_ses_event();
     let response = with_env(&[], app::handler(event)).await.unwrap();
@@ -589,7 +589,9 @@ async fn test_report_request_for_invalid_court() {
         ],
         async {
             sentry::test::with_captured_events(|| {
-                futures::executor::block_on(app::handler(event)).unwrap();
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(app::handler(event)).unwrap();
+                });
             })
         },
     )
