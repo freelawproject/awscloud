@@ -36,7 +36,7 @@ pub enum ValidationFailure {
 
 impl std::fmt::Display for ValidationFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -50,6 +50,7 @@ pub struct Response {
 }
 
 impl Response {
+    #[must_use]
     pub fn success(body: Value) -> Response {
         Self {
             status_code: 200,
@@ -58,6 +59,7 @@ impl Response {
         }
     }
 
+    #[must_use]
     pub fn source_missing_failure(body: Value) -> Response {
         Self {
             status_code: 415,
@@ -66,6 +68,7 @@ impl Response {
         }
     }
 
+    #[must_use]
     pub fn dependency_failure(body: Value, failure: ValidationFailure) -> Response {
         Self {
             status_code: 424,
@@ -80,18 +83,16 @@ pub static RECAP_EMAIL_ENDPOINT: LazyLock<RwLock<Option<String>>> =
 pub static CL_ENDPOINT_MAP: LazyLock<RwLock<HashMap<String, Option<String>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
-/// Extract values for a specific header from an SES email payload.
-///
-/// :param email: The SES email object.
-/// :param header_name: The name of the email header to extract.
-/// :return: A list of header values matching the requested header name.
+/// Extract values for the header with name [`header_name`] from an SES email payload.
+#[must_use]
 pub fn get_ses_email_headers<'a>(email: &'a SimpleEmailMessage, header_name: &str) -> Vec<Option<&'a str>> {
     email.headers.iter()
         .filter(|header| header.name.as_ref().is_some_and(|s| s.eq_ignore_ascii_case(header_name)))
-        .map(|header| header.value.as_ref().map(|s| s.as_str()))
+        .map(|header| header.value.as_deref())
         .collect()
 }
 
+#[must_use]
 pub fn get_combined_log_message(email: &SimpleEmailMessage) -> String {
     let subjects = get_ses_email_headers(email, "Subject");
     let subject = subjects
@@ -105,23 +106,24 @@ pub fn get_combined_log_message(email: &SimpleEmailMessage) -> String {
     )
 }
 
+/// Check whether an email address is one we accept updates from.
+///
+/// # Panics
+/// Will panic if it fails to acquire a write lock on [`CL_ENDPOINT_MAP`].
 pub fn check_valid_domain(email_address: &str) -> bool {
-    let domain = match extract_address(email_address).split('@').nth(1) {
-        Some(domain) => domain,
-        // Lack of @, invalid email address
-        None => return false,
+    let domain = extract_address(email_address);
+    let Some(tld) = extract_tld(domain) else {
+        return false;
     };
 
-    let labels: Vec<&str> = domain.split('.').collect();
-    let tld = labels[labels.len().saturating_sub(2)..].join(".");
-
-    CL_ENDPOINT_MAP.read().unwrap().contains_key(&tld)
+    CL_ENDPOINT_MAP.read().unwrap().contains_key(tld)
 }
 
+#[must_use]
 pub fn is_valid_domain(email: &SimpleEmailMessage) -> bool {
     // Check all Return-Path headers comes from uscourts.gov
     for email_address in get_ses_email_headers(email, "Return-Path") {
-        let Some(email_address) = email_address.as_deref() else {
+        let Some(email_address) = email_address else {
             continue;
         };
         if !check_valid_domain(email_address) {
@@ -131,9 +133,13 @@ pub fn is_valid_domain(email: &SimpleEmailMessage) -> bool {
     true
 }
 
+/// Shorthand to log a given validation failure and construct a [`Response`] object.
+///
+/// # Panics
+/// Will panic if the [`receipt`] parameter fails JSON serialization.
 pub fn validation_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt, failure: ValidationFailure) -> Response {
     error!(
-        "{} failed with spam verdict {failure:?}",
+        "{} failed because {failure:?}",
         get_combined_log_message(email)
     );
     Response {
@@ -143,6 +149,10 @@ pub fn validation_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailRecei
     }
 }
 
+/// Shorthand to log a domain validation failure and construct a [`Response`] object.
+///
+/// # Panics
+/// Will panic if the [`receipt`] parameter fails JSON serialization.
 pub fn validation_domain_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt) -> Response {
     error!(
         "{} failed domain validation.",
@@ -151,8 +161,9 @@ pub fn validation_domain_failure(email: &SimpleEmailMessage, receipt: &SimpleEma
     Response::dependency_failure(serde_json::to_value(receipt).unwrap(), ValidationFailure::Domain)
 }
 
-/// Return the registrable domain from the email's Return-Path header,
-/// or None if no Return-Path is present or parseable.
+/// Return the registrable domain from the email's `"Return-Path"` header,
+/// or None if no `"Return-Path"` is present or parseable.
+#[must_use]
 pub fn get_source_domain(email: &SimpleEmailMessage) -> Option<&str> {
     for email_address in get_ses_email_headers(email, "Return-Path") {
         let Some(email_address) = email_address else {
@@ -163,19 +174,17 @@ pub fn get_source_domain(email: &SimpleEmailMessage) -> Option<&str> {
     None
 }
 
-/// Return True if the email should be processed, False if it should be
+/// Return `true` if the email should be processed, `false` if it should be
 /// ignored because its source domain requires a specific subscription
 /// subdomain (e.g., scotus.recap.email) but the destination does not use it.
 ///
 /// Specifically, if any address in the email's destination list matches the
 /// expected destination for the given source domain, return True. Otherwise,
-/// return False. This lets us handle potential emails with multiple destinations
+/// return `false`. This lets us handle potential emails with multiple destinations
 /// correctly.
+#[must_use]
 pub fn destination_matches_subscription(email: &SimpleEmailMessage) -> bool {
-    let source_domain = match get_source_domain(email) {
-        Some(source_domain) => source_domain,
-        None => return true,
-    };
+    let Some(source_domain) = get_source_domain(email) else { return true };
     let required = match DOMAIN_TO_SUBSCRIPTION_SUBDOMAIN
         .iter()
         .find(|(domain, _)| *domain == source_domain)
@@ -184,11 +193,11 @@ pub fn destination_matches_subscription(email: &SimpleEmailMessage) -> bool {
         None => return true,
     };
     for destination in &email.destination {
-        let dest_parts: Vec<&str> = extract_address(&destination).split('@').collect();
-        if dest_parts.len() != 2 {
+        let address = extract_address(destination);
+        let Some(dest_domain) = extract_tld(address) else {
             continue;
-        }
-        let dest_domain = dest_parts[1].to_lowercase();
+        };
+
         if dest_domain == required || dest_domain.ends_with(&format!(".{required}")) {
             return true;
         }
@@ -196,6 +205,12 @@ pub fn destination_matches_subscription(email: &SimpleEmailMessage) -> bool {
     false
 }
 
+/// Ensure that the destination of an email matches the subscription subdomain for its source
+/// domain.
+///
+/// # Panics
+/// Will panic if the [`receipt`] parameter fails to serialize to JSON.
+#[must_use]
 pub fn ignore_wrong_subscription(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt) -> Response {
     warn!(
         "{} ignored — destination does not match the required subscription subdomain for its \
@@ -222,10 +237,7 @@ pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_
     let empty = Vec::new();
     let msgs = response_json["court"].as_array().unwrap_or(&empty);
     for msg in msgs {
-        let msg = match msg.as_str() {
-            Some(msg) => msg,
-            None => continue,
-        };
+        let Some(msg) = msg.as_str() else { continue };
         let court_id = match INVALID_PK_RE.captures(msg) {
             Some(captures) => captures[1].to_string(),
             None => continue,
@@ -243,11 +255,11 @@ pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_
 /// email.
 ///
 /// If no known domain match is found, the function defaults to the
-/// `RECAP_EMAIL_ENDPOINT`.
+/// [`RECAP_EMAIL_ENDPOINT`].
 ///
-/// :param email: The SES email object.
-/// :return: A string containing the CourtListener API endpoint URL to which
-/// the email request should be sent.
+/// # Panics
+/// Will panic if a read lock cannot be acquired on [`CL_ENDPOINT_MAP`].
+#[must_use]
 pub fn get_cl_endpoint(email: &SimpleEmailMessage) -> Option<String> {
     for email_address in get_ses_email_headers(email, "Return-Path") {
         let Some(email_address) = email_address else {
@@ -270,6 +282,10 @@ fn is_retryable(e: &Error) -> bool {
         .is_some_and(|e| e.is_connect() || e.is_timeout() || e.is_status())
 }
 
+/// Send an event which has passed validation to the CourtListener endpoint for the given court.
+///
+/// # Errors
+/// Will return an error if the send attempt fails all retries.
 pub async fn send_to_court_listener(
     email: &SimpleEmailMessage,
     receipt: &SimpleEmailReceipt,
@@ -337,9 +353,17 @@ fn verdict_pass_or_gray(verdict: &SimpleEmailVerdict) -> bool {
     }
 }
 
+/// Forward an SES email event to the appropriate CourtListener endpoint if it is valid.
+///
+/// # Errors
+/// Will return an error if the email event fails validation for any reason.
+///
+/// # Panics
+/// Will panic if a write lock on the [`RECAP_EMAIL_ENDPOINT`] or [`CL_ENDPOINT_MAP`] globals cannot
+/// be acquired.
 pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Response, Error> {
     let recap_email_endpoint = env::var("RECAP_EMAIL_ENDPOINT").ok();
-    *RECAP_EMAIL_ENDPOINT.write().unwrap() = recap_email_endpoint.clone();
+    (*RECAP_EMAIL_ENDPOINT.write().unwrap()).clone_from(&recap_email_endpoint);
     let scotus_email_endpoint = env::var("SCOTUS_EMAIL_ENDPOINT").ok();
     let texas_email_endpoint = env::var("TEXAS_EMAIL_ENDPOINT").ok();
     *CL_ENDPOINT_MAP.write().unwrap() = HashMap::from([

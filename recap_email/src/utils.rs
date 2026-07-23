@@ -5,18 +5,15 @@ use lambda_runtime::Error;
 use serde_json::Value;
 
 /// Retry calling the decorated function using an exponential backoff.
-/// http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
-/// original from: http://wiki.python.org/moin/PythonDecoratorLibrary#Retry
-/// :param ExceptionToCheck: the exception to check. may be a tuple of
-/// exceptions to check
-/// :type ExceptionToCheck: Exception or tuple
-/// :param tries: number of times to try (not retry) before giving up
-/// :type tries: int
-/// :param delay: initial delay between retries in seconds
-/// :type delay: int
-/// :param backoff: backoff multiplier e.g. value of 2 will double the delay
-/// each retry
-/// :type backoff: int
+///
+/// - [`exception_to_check`] Returns true if the given error value should be retried.
+/// - [`tries`] The maximum number of times to attempt the function.
+/// - [`delay`] The amount of time (in seconds) to wait between tries.
+/// - [`backoff`] The factor to multiply [`delay`] by after each try.
+/// - [`f`] The future to retry.
+///
+/// # Errors
+/// After all retries are exhausted, will return the final output of [`f`], which may be an error.
 pub async fn retry<T, F, Fut>(
     exception_to_check: fn(&Error) -> bool,
     tries: u32,
@@ -45,6 +42,7 @@ where
     f().await
 }
 
+#[must_use]
 pub fn extract_address(email: &str) -> &str {
     let value = email.trim();
     match value.rfind('<') {
@@ -56,6 +54,7 @@ pub fn extract_address(email: &str) -> &str {
     }
 }
 
+#[must_use]
 pub fn extract_tld(email: &str) -> Option<&str> {
     let address = extract_address(email);
     let i = address.find('@')?;
