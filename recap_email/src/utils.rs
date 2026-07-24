@@ -1,9 +1,8 @@
+use lambda_runtime::Error;
+use serde::{Serialize, Serializer};
 use std::fmt::Formatter;
 use std::future::Future;
 use std::time::Duration;
-
-use lambda_runtime::Error;
-use serde::{Serialize, Serializer};
 
 /// Retry calling the decorated function using an exponential backoff.
 ///
@@ -20,10 +19,10 @@ pub async fn retry<T, F, Fut>(
     tries: u32,
     delay: u64,
     backoff: u64,
-    mut f: F,
+    f: F,
 ) -> Result<T, Error>
 where
-    F: FnMut() -> Fut,
+    F: Fn() -> Fut,
     Fut: Future<Output = Result<T, Error>>,
 {
     let mut mtries = tries;
