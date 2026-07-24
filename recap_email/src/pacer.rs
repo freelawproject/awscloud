@@ -1,3 +1,6 @@
+//! Mapping between PACER/court email identifiers and CourtListener court ids,
+//! including the special handling for shared domains and Texas courts.
+
 use std::collections::HashMap;
 
 use regex::regex;
@@ -9,9 +12,15 @@ use crate::app::{
 };
 use crate::utils::EmailAddress;
 
+/// Lookup tables for translating a court's email identifiers into a
+/// CourtListener court id, plus the metadata needed to disambiguate shared
+/// and mismatched domains.
 pub struct EmailMap {
+    /// Source subdomains that are not real NEF origins and should be ignored.
     pub ignored_subdomains: Vec<&'static str>,
+    /// Direct map from a full source domain to its CourtListener court id.
     pub domain_to_cl_id: HashMap<&'static str, &'static str>,
+    /// Map from a PACER court id to its (differing) CourtListener court id.
     pub pacer_to_cl_id: HashMap<&'static str, &'static str>,
     /// Maps a court source domain to the subscription subdomain that must receive
     /// its emails. Emails from these domains that arrive via a different SES rule
@@ -57,6 +66,8 @@ impl Default for EmailMap {
 }
 
 impl EmailMap {
+    /// Translate a PACER court id to its CourtListener court id, returning the
+    /// input unchanged when there is no override.
     #[must_use]
     pub fn pacer_to_cl_id<'a>(&self, pacer_id: &'a str) -> &'a str {
         self.pacer_to_cl_id
@@ -65,6 +76,8 @@ impl EmailMap {
             .unwrap_or(pacer_id)
     }
 
+    /// Translate a CourtListener court id back to its PACER court id, returning
+    /// the input unchanged when there is no override.
     #[must_use]
     pub fn cl_to_pacer_id<'a>(&self, cl_id: &'a str) -> &'a str {
         if cl_id == "nysb" {
@@ -76,6 +89,8 @@ impl EmailMap {
             .map_or(cl_id, |(pacer, _)| *pacer)
     }
 
+    /// Map an email address's domain to a CourtListener court id via
+    /// [`Self::domain_to_cl_id`], returning the domain unchanged when unknown.
     #[must_use]
     pub fn email_address_to_cl_id<'a>(&self, email: &EmailAddress<'a>) -> &'a str {
         self.domain_to_cl_id

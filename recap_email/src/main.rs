@@ -1,3 +1,6 @@
+//! Binary entry point: initialises Sentry and tracing, then runs the Lambda
+//! runtime against [`recap_email::app::handler`].
+
 use lambda_runtime::{
     Error,
     run,

@@ -1,3 +1,6 @@
+//! Shared helpers: an exponential-backoff retry combinator and a zero-copy
+//! email address parser.
+
 use std::fmt::Formatter;
 use std::future::Future;
 use std::time::Duration;
@@ -10,14 +13,14 @@ use serde::{
 
 /// Retry calling the decorated function using an exponential backoff.
 ///
-/// - [`exception_to_check`] Returns true if the given error value should be retried.
-/// - [`tries`] The maximum number of times to attempt the function.
-/// - [`delay`] The amount of time (in seconds) to wait between tries.
-/// - [`backoff`] The factor to multiply [`delay`] by after each try.
-/// - [`f`] The future to retry.
+/// - `exception_to_check` Returns true if the given error value should be retried.
+/// - `tries` The maximum number of times to attempt the function.
+/// - `delay` The amount of time (in seconds) to wait between tries.
+/// - `backoff` The factor to multiply `delay` by after each try.
+/// - `f` The future to retry.
 ///
 /// # Errors
-/// After all retries are exhausted, will return the final output of [`f`], which may be an error.
+/// After all retries are exhausted, will return the final output of `f`, which may be an error.
 pub async fn retry<T, F, Fut>(
     exception_to_check: fn(&Error) -> bool,
     tries: u32,
@@ -72,9 +75,11 @@ impl Serialize for EmailAddress<'_> {
 impl<'a> EmailAddress<'a> {
     /// Parse a given string into an email of the form
     ///
-    /// ```
+    /// ```text
     /// [<]<name>@[subdomain.]<domain>[>]
     /// ```
+    ///
+    /// Returns [`None`] if the string contains no `@`.
     #[must_use]
     pub fn parse_str(email: &'a str) -> Option<Self> {
         let value = email.trim();

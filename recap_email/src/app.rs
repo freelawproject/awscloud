@@ -1,3 +1,10 @@
+//! The Lambda request handler and the SES event validation/forwarding
+//! pipeline.
+//!
+//! [`handler`] is the Lambda entry point. It wraps an incoming SES record in a
+//! typestate [`SESEvent`], validates it, and forwards the validated event to
+//! the appropriate CourtListener endpoint.
+
 use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
@@ -28,21 +35,37 @@ use crate::pacer::EmailMap;
 use crate::utils;
 use crate::utils::EmailAddress;
 
+/// A reason an SES event was rejected during validation.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ValidationFailure {
+    /// The SES spam verdict did not pass.
     Spam,
+    /// The SES virus verdict did not pass.
     Virus,
+    /// The SES SPF verdict was neither `PASS` nor `GRAY`.
     Spf,
+    /// The SES DKIM verdict was neither `PASS` nor `GRAY`.
     Dkim,
+    /// The SES DMARC verdict was neither `PASS` nor `GRAY`.
     Dmarc,
+    /// The `Return-Path` domain is not one we accept updates from.
     Domain,
+    /// The record's event source was not `aws:ses`.
     EventSourceMissing,
+    /// The destination did not match the subscription subdomain required for
+    /// the source domain, so the email was ignored to avoid double processing.
     Subscription,
+    /// The resolved court is an ignored subdomain (not a real NEF source).
     Email,
+    /// A Texas subject line did not have the expected prefix.
     UnrecognizedSubject,
+    /// A Texas subject line named a court we could not map to a CL id.
     UnrecognizedCourt,
+    /// The email had no `From` address in its common headers.
     MissingCommonFrom,
+    /// A Texas email had no `Subject` in its common headers.
     MissingCommonSubject,
+    /// The `From` address could not be parsed.
     AddressParsingFailed,
 }
 
@@ -54,14 +77,20 @@ impl std::fmt::Display for ValidationFailure {
 
 impl std::error::Error for ValidationFailure {}
 
+/// The result of handling an SES event, returned to the Lambda runtime.
 #[derive(Debug, Clone, Serialize)]
 pub struct Response {
+    /// HTTP-style status code describing the outcome.
     pub status_code: u16,
+    /// `Ok` when the event was accepted, otherwise the reason it was rejected.
     pub failure: Result<(), ValidationFailure>,
+    /// The response body: the CourtListener response, or the SES receipt when
+    /// the event was rejected before being forwarded.
     pub body: Value,
 }
 
 impl Response {
+    /// Build a `200 OK` response wrapping the given body.
     #[must_use]
     pub fn success(body: Value) -> Response {
         Self {
@@ -71,6 +100,7 @@ impl Response {
         }
     }
 
+    /// Build a `415` response for records that are not `aws:ses` events.
     #[must_use]
     pub fn source_missing_failure() -> Response {
         Self {
@@ -80,6 +110,8 @@ impl Response {
         }
     }
 
+    /// Build a `424` response for an event that failed a validation check,
+    /// logging the failure and echoing back the SES receipt.
     #[must_use]
     pub fn dependency_failure(
         event: &SESEvent<Unvalidated>,
@@ -98,6 +130,9 @@ impl Response {
     }
 }
 
+/// Maps court source domains to their CourtListener API endpoints, read from
+/// the `RECAP_EMAIL_ENDPOINT`, `SCOTUS_EMAIL_ENDPOINT`, and
+/// `TEXAS_EMAIL_ENDPOINT` environment variables.
 pub struct EndpointMap {
     recap_endpoint: Option<String>,
     cl_endpoints: HashMap<String, Option<String>>,
@@ -125,7 +160,7 @@ impl EndpointMap {
     /// email to based on its `"Return-Path"` headers.
     ///
     /// If no known domain match is found, the function defaults to the
-    /// [`self.recap_endpoint`].
+    /// `recap_endpoint`.
     #[must_use]
     pub fn get_cl_endpoint(&self, addrs: &[Option<&str>]) -> Option<String> {
         addrs
@@ -146,6 +181,8 @@ impl EndpointMap {
             .is_some_and(|email| self.cl_endpoints.contains_key(email.domain()))
     }
 
+    /// Check whether every supplied `Return-Path` address comes from a domain
+    /// we accept updates from.
     #[must_use]
     pub fn is_valid_domain(&self, addrs: &[Option<&str>]) -> bool {
         // Check all Return-Path headers comes from uscourts.gov
@@ -189,12 +226,18 @@ pub fn log_invalid_court_error(
     }
 }
 
+/// Typestate marker for an [`SESEvent`] that has not yet been validated.
 pub struct Unvalidated;
+
+/// Typestate marker for an [`SESEvent`] that has passed validation, carrying
+/// the resolved court id and its CourtListener endpoint.
 pub struct Validated {
     court_id: String,
     endpoint: Option<String>,
 }
 
+/// A borrowed SES email paired with a typestate marker (`Unvalidated` or
+/// `Validated`) that tracks whether it has passed validation.
 pub struct SESEvent<'a, ValidationState>(&'a SimpleEmailService, ValidationState);
 
 impl<'a> From<&'a SimpleEmailService> for SESEvent<'a, Unvalidated> {
@@ -210,15 +253,17 @@ impl<'a, VS> From<SESEvent<'a, VS>> for &'a SimpleEmailService {
 }
 
 impl<'a, VS> SESEvent<'a, VS> {
+    /// Borrow the underlying SES message.
     pub fn email(&self) -> &SimpleEmailMessage {
         &self.0.mail
     }
 
+    /// Borrow the SES receipt (spam/virus/SPF/DKIM/DMARC verdicts).
     pub fn receipt(&self) -> &SimpleEmailReceipt {
         &self.0.receipt
     }
 
-    /// Extract values for the header with name [`header_name`] from an SES email payload.
+    /// Extract values for the header with name `key` from an SES email payload.
     #[must_use]
     pub fn get_header(&self, key: &'a str) -> Vec<Option<&'a str>> {
         self.0
@@ -235,6 +280,8 @@ impl<'a, VS> SESEvent<'a, VS> {
             .collect()
     }
 
+    /// Build a human-readable one-line summary of the email (id, subject,
+    /// source, and destination) for logging.
     #[must_use]
     pub fn get_combined_log_message(&self) -> String {
         let subjects = self.get_header("Subject");
@@ -407,6 +454,8 @@ impl SESEvent<'_, Validated> {
     }
 }
 
+/// The JSON body posted to the CourtListener endpoint: the SES message and
+/// receipt plus the resolved CourtListener court id.
 #[derive(Serialize)]
 pub struct CLPayload<'a> {
     mail: &'a SimpleEmailMessage,
