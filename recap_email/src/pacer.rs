@@ -67,6 +67,11 @@ impl EmailMap {
             .map_or(cl_id, |(pacer, _)| *pacer)
     }
 
+    #[must_use]
+    pub fn email_address_to_cl_id<'a>(&self, email: &EmailAddress<'a>) -> &'a str {
+        self.domain_to_cl_id.get(email.domain()).copied().unwrap_or(email.domain())
+    }
+
 
     /// Extract the PACER court id from the originating ECF database hostname
     /// in the email's Received headers.
@@ -118,24 +123,23 @@ impl EmailMap {
                     && shared_courts.contains(&ecf_court) {
                     return Ok(ecf_cl_court.to_string());
                 }
-                let error_message = format!(
-                    "ECF host court mismatch: From-derived court '{pacer_id}' vs ECF host court \
-                 '{ecf_court}' - message_id: {}", event.email().message_id.clone().unwrap_or_default(),
-                );
                 sentry::with_scope(
                     |scope| scope.set_fingerprint(Some(&["ecf-host-court-mismatch"])),
-                    || sentry::capture_message(&error_message, sentry::Level::Error),
+                    || sentry::capture_message(&format!(
+                        "ECF host court mismatch: From-derived court '{pacer_id}' vs ECF host court '{ecf_court}' - message_id: {}",
+                        event.email().message_id.clone().unwrap_or_default(),
+                    ), sentry::Level::Error),
                 );
             }
             return Ok(from_court.to_string());
         }
-        let maybe_cl_id = self.domain_to_cl_id.get(from_addr.domain()).copied().unwrap_or(from_addr.domain());
-        if maybe_cl_id == "texas" {
+        let cl_id = self.email_address_to_cl_id(&from_addr);
+        if cl_id == "texas" {
             let subject = event.email().common_headers.subject.clone()
                 .ok_or(ValidationFailure::MissingCommonSubject)?;
             return Ok(get_tx_court_id_from_subject(&subject)?.to_string());
         }
-        Ok(maybe_cl_id.to_string())
+        Ok(cl_id.to_string())
     }
 
     /// Return `true` if the email should be processed, `false` if it should be
