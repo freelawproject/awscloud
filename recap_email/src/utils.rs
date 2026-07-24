@@ -1,8 +1,12 @@
-use lambda_runtime::Error;
-use serde::{Serialize, Serializer};
 use std::fmt::Formatter;
 use std::future::Future;
 use std::time::Duration;
+
+use lambda_runtime::Error;
+use serde::{
+    Serialize,
+    Serializer,
+};
 
 /// Retry calling the decorated function using an exponential backoff.
 ///
@@ -78,15 +82,17 @@ impl<'a> EmailAddress<'a> {
             Some(start) => {
                 let rest = &value[start + 1..];
                 rest.strip_suffix('>').unwrap_or(rest).trim()
-            },
+            }
             None => value,
         };
         let at_index = email_clean.find('@')?;
         Some(Self {
             value: email_clean,
             at_index,
-            dot_indices: email_clean[at_index..].char_indices()
-                .filter(|(_, c)| *c == '.').map(|(i, _)| at_index + i)
+            dot_indices: email_clean[at_index..]
+                .char_indices()
+                .filter(|(_, c)| *c == '.')
+                .map(|(i, _)| at_index + i)
                 .collect(),
         })
     }

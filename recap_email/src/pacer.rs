@@ -1,7 +1,13 @@
-use crate::app::{SESEvent, Unvalidated, ValidationFailure};
-use crate::utils::EmailAddress;
-use regex::regex;
 use std::collections::HashMap;
+
+use regex::regex;
+
+use crate::app::{
+    SESEvent,
+    Unvalidated,
+    ValidationFailure,
+};
+use crate::utils::EmailAddress;
 
 pub struct EmailMap {
     pub ignored_subdomains: Vec<&'static str>,
@@ -53,7 +59,10 @@ impl Default for EmailMap {
 impl EmailMap {
     #[must_use]
     pub fn pacer_to_cl_id<'a>(&self, pacer_id: &'a str) -> &'a str {
-        self.pacer_to_cl_id.get(pacer_id).copied().unwrap_or(pacer_id)
+        self.pacer_to_cl_id
+            .get(pacer_id)
+            .copied()
+            .unwrap_or(pacer_id)
     }
 
     #[must_use]
@@ -69,9 +78,11 @@ impl EmailMap {
 
     #[must_use]
     pub fn email_address_to_cl_id<'a>(&self, email: &EmailAddress<'a>) -> &'a str {
-        self.domain_to_cl_id.get(email.domain()).copied().unwrap_or(email.domain())
+        self.domain_to_cl_id
+            .get(email.domain())
+            .copied()
+            .unwrap_or(email.domain())
     }
-
 
     /// Extract the PACER court id from the originating ECF database hostname
     /// in the email's Received headers.
@@ -88,7 +99,9 @@ impl EmailMap {
         // "<name>db." prefix is required so generic court mail relays under gtwy.dcn
         // (e.g. "smtp2-i.asbn.gtwy.dcn") don't match.
         let ecf_host_re = regex!(r"(?i)\b[a-z0-9]+db\.([a-z0-9]+)\.gtwy\.dcn");
-        event.get_header("Received").iter()
+        event
+            .get_header("Received")
+            .iter()
             .rev()
             .filter_map(Clone::clone)
             .find_map(|v| ecf_host_re.captures(v))
@@ -100,10 +113,15 @@ impl EmailMap {
     /// # Errors
     /// Will return an error message if the email domain is not recognized.
     pub fn email_to_cl_id<VS>(&self, event: &SESEvent<VS>) -> Result<String, ValidationFailure> {
-        let from_addr = EmailAddress::parse_str(event.email()
-            .common_headers.from.first()
-            .ok_or(ValidationFailure::MissingCommonFrom)?
-        ).ok_or(ValidationFailure::AddressParsingFailed)?;
+        let from_addr = EmailAddress::parse_str(
+            event
+                .email()
+                .common_headers
+                .from
+                .first()
+                .ok_or(ValidationFailure::MissingCommonFrom)?,
+        )
+        .ok_or(ValidationFailure::AddressParsingFailed)?;
         let domain = from_addr.domain();
         if domain == "fedcourts.us" || domain == "uscourts.gov" {
             let pacer_id = from_addr.subdomain();
@@ -120,22 +138,33 @@ impl EmailMap {
                 && ecf_cl_court != from_court_lower
             {
                 if let Some(shared_courts) = self.shared_domain_courts.get(pacer_id_lower.as_str())
-                    && shared_courts.contains(&ecf_court) {
+                    && shared_courts.contains(&ecf_court)
+                {
                     return Ok(ecf_cl_court.to_string());
                 }
                 sentry::with_scope(
                     |scope| scope.set_fingerprint(Some(&["ecf-host-court-mismatch"])),
-                    || sentry::capture_message(&format!(
-                        "ECF host court mismatch: From-derived court '{pacer_id}' vs ECF host court '{ecf_court}' - message_id: {}",
-                        event.email().message_id.clone().unwrap_or_default(),
-                    ), sentry::Level::Error),
+                    || {
+                        sentry::capture_message(
+                            &format!(
+                                "ECF host court mismatch: From-derived court '{pacer_id}' vs ECF \
+                                 host court '{ecf_court}' - message_id: {}",
+                                event.email().message_id.clone().unwrap_or_default(),
+                            ),
+                            sentry::Level::Error,
+                        )
+                    },
                 );
             }
             return Ok(from_court.to_string());
         }
         let cl_id = self.email_address_to_cl_id(&from_addr);
         if cl_id == "texas" {
-            let subject = event.email().common_headers.subject.clone()
+            let subject = event
+                .email()
+                .common_headers
+                .subject
+                .clone()
                 .ok_or(ValidationFailure::MissingCommonSubject)?;
             return Ok(get_tx_court_id_from_subject(&subject)?.to_string());
         }
@@ -152,13 +181,17 @@ impl EmailMap {
     /// correctly.
     #[must_use]
     pub fn destination_matches_subscription(&self, event: &SESEvent<Unvalidated>) -> bool {
-        let Some(source_domain) = event.get_source_domain() else { return true };
+        let Some(source_domain) = event.get_source_domain() else {
+            return true;
+        };
         let Some(required) = self.domain_to_subscription.get(source_domain) else {
             return true;
         };
 
         for destination in &event.email().destination {
-            let Some(address) = EmailAddress::parse_str(destination) else { continue };
+            let Some(address) = EmailAddress::parse_str(destination) else {
+                continue;
+            };
             let dest_domain = &address.address().to_lowercase();
 
             if dest_domain == required || dest_domain.ends_with(&format!(".{required}")) {

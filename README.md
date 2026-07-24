@@ -10,24 +10,47 @@ Further development is intended and all contributors, corrections and additions 
 
 ## Quickstart
 
-Resources are divided into separate directories within this project. This is to support different generations of deployments and workflows.
+The Lambda functions are written in Rust as members of a Cargo workspace. Build and test them with the standard Cargo
+tooling:
 
-For each resource, refer to the README.md in the directory.
+```bash
+cargo build
+cargo test
+```
 
-1. cl (short for courtlistener) - [cl/README.md](cl/README.md)
+Deployments are packaged with the AWS SAM CLI, which builds the Rust functions
+via [cargo-lambda](https://www.cargo-lambda.info/). Install both before deploying.
+
+### Resources
+
+1. recap_email - Email routing for RECAP docket updates. See
+   [recap_email/](recap_email/).
 
 ## Deployment
 
 Before deploying to AWS, you should setup a profile for free-law-project or the test environment you're using.
 
-Then, run the AWS SAM commands with the profile environment variable:
+Then build with SAM (which invokes cargo-lambda) and deploy with the profile environment variable:
 
 ```bash
-sam build --use-container
+sam build
 AWS_PROFILE=free-law-project sam deploy --guided
 ```
 
-This will guide you through the deployment the first time you run it. It will then save a .toml file inside the resource directory with the deployment configuration. For example: cl/samconfig.taml.
+This will guide you through the deployment the first time you run it. It will then save a `samconfig.toml` file with the
+deployment configuration for subsequent `sam deploy` runs.
+
+### Local testing
+
+Invoke a function locally against one of the sample events with the SAM CLI:
+
+```bash
+sam build
+sam local invoke RecapEmailFunction --env-vars env.json --event recap_email/events/ses.json
+```
+
+`env.json` contains the default configuration for running against a local CourtListener. If you are testing another
+configuration, use a separate environment file.
 
 ## License
 

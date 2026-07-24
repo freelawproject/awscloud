@@ -1,3 +1,0 @@
-requests
-pyhumps==3.7.2
-sentry-sdk

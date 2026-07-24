@@ -6,23 +6,21 @@ repos:
     rev: v5.0.0
     hooks:
      - id: check-added-large-files
-     - id: check-ast
      - id: check-json
      - id: check-merge-conflict
      - id: check-toml
      - id: check-xml
      - id: check-yaml
-     - id: debug-statements
      - id: detect-private-key
      - id: fix-byte-order-marker
-     - id: fix-encoding-pragma
-       args: [--remove]
      - id: trailing-whitespace
        args: [--markdown-linebreak-ext=md]
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.8
+  - repo: local
     hooks:
-      - id: ruff
-        args: [ --fix ]
-      - id: ruff-format
+      - id: rustfmt
+        name: rustfmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: false

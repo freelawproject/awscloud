@@ -1,18 +1,32 @@
-use crate::pacer::EmailMap;
-use crate::utils;
-use crate::utils::EmailAddress;
-use aws_lambda_events::ses::{SimpleEmailEvent, SimpleEmailMessage, SimpleEmailReceipt, SimpleEmailService, SimpleEmailVerdict};
-use lambda_runtime::tracing::{error, warn};
-use lambda_runtime::{Error, LambdaEvent};
+use std::collections::HashMap;
+use std::env;
+use std::time::Duration;
+
+use aws_lambda_events::ses::{
+    SimpleEmailEvent,
+    SimpleEmailMessage,
+    SimpleEmailReceipt,
+    SimpleEmailService,
+    SimpleEmailVerdict,
+};
+use lambda_runtime::tracing::{
+    error,
+    warn,
+};
+use lambda_runtime::{
+    Error,
+    LambdaEvent,
+};
 use regex::regex;
 use serde::Serialize;
 use serde_json::{
     Value,
     json,
 };
-use std::collections::HashMap;
-use std::env;
-use std::time::Duration;
+
+use crate::pacer::EmailMap;
+use crate::utils;
+use crate::utils::EmailAddress;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ValidationFailure {
@@ -67,7 +81,10 @@ impl Response {
     }
 
     #[must_use]
-    pub fn dependency_failure(event: &SESEvent<Unvalidated>, failure: ValidationFailure) -> Response {
+    pub fn dependency_failure(
+        event: &SESEvent<Unvalidated>,
+        failure: ValidationFailure,
+    ) -> Response {
         error!(
             "{} failed because {failure:?}",
             event.get_combined_log_message()
@@ -111,9 +128,14 @@ impl EndpointMap {
     /// [`self.recap_endpoint`].
     #[must_use]
     pub fn get_cl_endpoint(&self, addrs: &[Option<&str>]) -> Option<String> {
-        addrs.iter()
+        addrs
+            .iter()
             .filter_map(|addr| addr.and_then(EmailAddress::parse_str))
-            .find_map(|addr| self.cl_endpoints.get(addr.domain()).and_then(ToOwned::to_owned))
+            .find_map(|addr| {
+                self.cl_endpoints
+                    .get(addr.domain())
+                    .and_then(ToOwned::to_owned)
+            })
             .or(self.recap_endpoint.clone())
     }
 
@@ -127,7 +149,8 @@ impl EndpointMap {
     #[must_use]
     pub fn is_valid_domain(&self, addrs: &[Option<&str>]) -> bool {
         // Check all Return-Path headers comes from uscourts.gov
-        addrs.iter()
+        addrs
+            .iter()
             .filter_map(|v| *v)
             .all(|email_address| self.check_valid_domain(email_address))
     }
@@ -135,7 +158,11 @@ impl EndpointMap {
 
 /// Checks if the response indicates an invalid court pk then send a report
 /// to Sentry.
-pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_id: &Option<String>) {
+pub fn log_invalid_court_error(
+    status_code: u16,
+    response_json: &Value,
+    message_id: &Option<String>,
+) {
     let invalid_pk_re = regex!(r#"Invalid pk "([^"]+)"#);
 
     if status_code != 400 {
@@ -150,7 +177,10 @@ pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_
             Some(captures) => captures[1].to_string(),
             None => continue,
         };
-        let error_message = format!("Invalid court pk: {court_id} - message_id: {}", message_id.clone().unwrap_or_default());
+        let error_message = format!(
+            "Invalid court pk: {court_id} - message_id: {}",
+            message_id.clone().unwrap_or_default()
+        );
         sentry::with_scope(
             |scope| scope.set_fingerprint(Some(&["invalid-court-pk"])),
             || sentry::capture_message(&error_message, sentry::Level::Error),
@@ -191,8 +221,16 @@ impl<'a, VS> SESEvent<'a, VS> {
     /// Extract values for the header with name [`header_name`] from an SES email payload.
     #[must_use]
     pub fn get_header(&self, key: &'a str) -> Vec<Option<&'a str>> {
-        self.0.mail.headers.iter()
-            .filter(|header| header.name.as_ref().is_some_and(|s| s.eq_ignore_ascii_case(key)))
+        self.0
+            .mail
+            .headers
+            .iter()
+            .filter(|header| {
+                header
+                    .name
+                    .as_ref()
+                    .is_some_and(|s| s.eq_ignore_ascii_case(key))
+            })
             .map(|header| header.value.as_deref())
             .collect()
     }
@@ -200,14 +238,11 @@ impl<'a, VS> SESEvent<'a, VS> {
     #[must_use]
     pub fn get_combined_log_message(&self) -> String {
         let subjects = self.get_header("Subject");
-        let subject = subjects
-            .last().and_then(|subject| subject.as_deref());
+        let subject = subjects.last().and_then(|subject| subject.as_deref());
 
         format!(
             "Email ID {:?} with {subject:?}, from {:?} to {:?}",
-            self.0.mail.message_id,
-            self.0.mail.source,
-            self.0.mail.destination
+            self.0.mail.message_id, self.0.mail.source, self.0.mail.destination
         )
     }
 
@@ -215,7 +250,8 @@ impl<'a, VS> SESEvent<'a, VS> {
     /// or None if no `"Return-Path"` is present or parseable.
     #[must_use]
     pub fn get_source_domain(&self) -> Option<&'a str> {
-        self.get_header("Return-Path").iter()
+        self.get_header("Return-Path")
+            .iter()
             .filter_map(|v| v.and_then(EmailAddress::parse_str))
             .map(|email_address| email_address.domain())
             .next()
@@ -223,24 +259,36 @@ impl<'a, VS> SESEvent<'a, VS> {
 }
 
 impl<'a> SESEvent<'a, Unvalidated> {
-    fn verdict_require_pass(&self, verdict: &SimpleEmailVerdict, failure: ValidationFailure) -> Result<(), Response> {
+    fn verdict_require_pass(
+        &self,
+        verdict: &SimpleEmailVerdict,
+        failure: ValidationFailure,
+    ) -> Result<(), Response> {
         match &verdict.status {
-            Some(status) => if status == "PASS" {
-                Ok(())
-            } else {
-                Err(Response::dependency_failure(self, failure))
-            },
+            Some(status) => {
+                if status == "PASS" {
+                    Ok(())
+                } else {
+                    Err(Response::dependency_failure(self, failure))
+                }
+            }
             None => Ok(()),
         }
     }
 
-    fn verdict_require_pass_or_gray(&self, verdict: &SimpleEmailVerdict, failure: ValidationFailure) -> Result<(), Response> {
+    fn verdict_require_pass_or_gray(
+        &self,
+        verdict: &SimpleEmailVerdict,
+        failure: ValidationFailure,
+    ) -> Result<(), Response> {
         match &verdict.status {
-            Some(status) => if status == "PASS" || status == "GRAY" {
-                Ok(())
-            } else {
-                Err(Response::dependency_failure(self, failure))
-            },
+            Some(status) => {
+                if status == "PASS" || status == "GRAY" {
+                    Ok(())
+                } else {
+                    Err(Response::dependency_failure(self, failure))
+                }
+            }
             None => Ok(()),
         }
     }
@@ -261,12 +309,16 @@ impl<'a> SESEvent<'a, Unvalidated> {
         let email_map = EmailMap::default();
 
         if !endpoint_map.is_valid_domain(&self.get_header("Return-Path")) {
-            return Err(Response::dependency_failure(&self, ValidationFailure::Domain));
+            return Err(Response::dependency_failure(
+                &self,
+                ValidationFailure::Domain,
+            ));
         }
 
         if !email_map.destination_matches_subscription(&self) {
             warn!(
-                "{} ignored — destination does not match the required subscription subdomain for its source domain.",
+                "{} ignored — destination does not match the required subscription subdomain for \
+                 its source domain.",
                 self.get_combined_log_message()
             );
             return Err(Response {
@@ -282,14 +334,20 @@ impl<'a> SESEvent<'a, Unvalidated> {
             Err(e) => return Err(Response::dependency_failure(&self, e)),
         };
         if email_map.ignored_subdomains.contains(&court_id.as_str()) {
-            return Err(Response::dependency_failure(&self, ValidationFailure::Email));
+            return Err(Response::dependency_failure(
+                &self,
+                ValidationFailure::Email,
+            ));
         }
 
 
-        Ok(SESEvent(self.0, Validated {
-            court_id,
-            endpoint: endpoint_map.get_cl_endpoint(&self.get_header("Return-Path")),
-        }))
+        Ok(SESEvent(
+            self.0,
+            Validated {
+                court_id,
+                endpoint: endpoint_map.get_cl_endpoint(&self.get_header("Return-Path")),
+            },
+        ))
     }
 }
 
@@ -300,7 +358,11 @@ impl SESEvent<'_, Validated> {
     /// Will return an error if the send attempt fails all retries or if no CourtListener endpoint
     /// is configured for this event.
     pub async fn send_to_court_listener(&self) -> Result<Response, Error> {
-        let endpoint = self.1.endpoint.clone().ok_or("no CourtListener endpoint configured")?;
+        let endpoint = self
+            .1
+            .endpoint
+            .clone()
+            .ok_or("no CourtListener endpoint configured")?;
         utils::retry(is_retryable, 5, 10, 3, || async {
             println!(
                 "{} sending to Court Listener API.",
@@ -341,7 +403,7 @@ impl SESEvent<'_, Validated> {
                 body: response_json,
             })
         })
-            .await
+        .await
     }
 }
 
@@ -373,13 +435,18 @@ fn is_retryable(e: &Error) -> bool {
 /// # Errors
 /// Will return an error if the event is valid, but fails to successfully send to CourtListener.
 pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Response, Error> {
-    let Some(ses_event) = event.payload.records.first().map(|r| SESEvent::from(&r.ses)) else {
+    let Some(ses_event) = event
+        .payload
+        .records
+        .first()
+        .map(|r| SESEvent::from(&r.ses))
+    else {
         return Ok(Response::source_missing_failure());
     };
 
     let ses_event = match ses_event.validate() {
         Ok(ses_event) => ses_event,
-        Err(response) => return Ok(response)
+        Err(response) => return Ok(response),
     };
 
     ses_event.send_to_court_listener().await

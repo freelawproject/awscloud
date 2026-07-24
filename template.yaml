@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  cl
+  awscloud
 
-  Sample SAM Template for cl
+  SAM template for Free Law Project's AWS Cloud resources.
 
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
@@ -13,10 +13,17 @@ Globals:
 Resources:
   RecapEmailFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Metadata:
+      # Build the Rust Lambda with cargo-lambda (https://www.cargo-lambda.info/).
+      BuildMethod: rust-cargolambda
+      BuildProperties:
+        Binary: recap_email
     Properties:
       CodeUri: recap_email/
-      Handler: app.app.handler
-      Runtime: python3.11
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+        - x86_64
       Environment:
         Variables:
           RECAP_EMAIL_ENDPOINT: https://www.courtlistener.com/api/rest/v3/recap-email/

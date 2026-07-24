@@ -1,8 +1,8 @@
 use lambda_runtime::{
+    Error,
     run,
     service_fn,
     tracing,
-    Error,
 };
 
 #[tokio::main]
@@ -22,8 +22,5 @@ async fn main() -> Result<(), Error> {
 
     tracing::init_default_subscriber();
 
-    run(service_fn(
-        recap_email::app::handler
-    ))
-    .await
+    run(service_fn(recap_email::app::handler)).await
 }

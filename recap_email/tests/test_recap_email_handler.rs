@@ -1,14 +1,33 @@
-use aws_lambda_events::ses::{SimpleEmailCommonHeaders, SimpleEmailEvent, SimpleEmailHeader, SimpleEmailMessage, SimpleEmailReceipt, SimpleEmailService};
-use chrono::{DateTime, Local, Utc};
-use lambda_runtime::{Context, LambdaEvent};
+use std::future::Future;
+
+use aws_lambda_events::ses::{
+    SimpleEmailCommonHeaders,
+    SimpleEmailEvent,
+    SimpleEmailHeader,
+    SimpleEmailMessage,
+    SimpleEmailReceipt,
+    SimpleEmailService,
+};
+use chrono::{
+    DateTime,
+    Local,
+    Utc,
+};
+use lambda_runtime::{
+    Context,
+    LambdaEvent,
+};
 use recap_email::app;
-use recap_email::app::{EndpointMap, SESEvent, ValidationFailure};
+use recap_email::app::{
+    EndpointMap,
+    SESEvent,
+    ValidationFailure,
+};
 use recap_email::pacer::EmailMap;
 use serde_json::{
     Value,
     json,
 };
-use std::future::Future;
 use wiremock::matchers::method;
 use wiremock::{
     Mock,
@@ -17,8 +36,11 @@ use wiremock::{
 };
 
 fn load_event(name: &str) -> LambdaEvent<SimpleEmailEvent> {
-    let path = format!("{}/../cl/events/{}", env!("CARGO_MANIFEST_DIR"), name);
-    LambdaEvent::new(serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap(), Context::default())
+    let path = format!("{}/events/{}", env!("CARGO_MANIFEST_DIR"), name);
+    LambdaEvent::new(
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap(),
+        Context::default(),
+    )
 }
 
 async fn with_env<T>(vars: &[(&str, &str)], f: impl Future<Output = T>) -> T {
@@ -155,9 +177,7 @@ async fn test_multiple_domains_success() {
 fn test_get_cl_court_id_using_mapping() {
     let email_map = EmailMap::default();
     for (pacer_id, expected_cl) in email_map.pacer_to_cl_id.clone() {
-        let email = make_court_email(
-            &format!("ecfnotices@{pacer_id}.uscourts.gov"), &vec![][..],
-        );
+        let email = make_court_email(&format!("ecfnotices@{pacer_id}.uscourts.gov"), &vec![][..]);
         let result = email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap();
         assert_eq!(
             result, expected_cl,
@@ -174,27 +194,31 @@ fn make_court_email(from_addr: &str, received_hosts: &[&str]) -> SimpleEmailServ
         .mail(
             SimpleEmailMessage::builder()
                 .message_id("test-ecf-host-message-id".to_string())
-                .common_headers(SimpleEmailCommonHeaders::builder()
-                    .from(vec![from_addr.to_string()])
-                    .to(vec![])
-                    .build()
+                .common_headers(
+                    SimpleEmailCommonHeaders::builder()
+                        .from(vec![from_addr.to_string()])
+                        .to(vec![])
+                        .build(),
                 )
-                .headers(received_hosts
-                    .iter()
-                    .map(|host| {
-                        SimpleEmailHeader::builder()
-                            .name("Received".to_string())
-                            .value(format!(
-                                "from unknown (HELO {host}) ([156.119.56.176]) by icmecf202.gtwy.uscourts.gov with ESMTP; 28 Jun 2021 18:51:10 +0000"
-                            ))
-                            .build()
-                    })
-                    .collect()
+                .headers(
+                    received_hosts
+                        .iter()
+                        .map(|host| {
+                            SimpleEmailHeader::builder()
+                                .name("Received".to_string())
+                                .value(format!(
+                                    "from unknown (HELO {host}) ([156.119.56.176]) by \
+                                     icmecf202.gtwy.uscourts.gov with ESMTP; 28 Jun 2021 18:51:10 \
+                                     +0000"
+                                ))
+                                .build()
+                        })
+                        .collect(),
                 )
                 .timestamp(DateTime::from_naive_utc_and_offset(now.naive_utc(), Utc))
                 .destination(vec![])
                 .headers_truncated(false)
-                .build()
+                .build(),
         )
         .receipt(SimpleEmailReceipt::default())
         .build()
@@ -209,7 +233,10 @@ fn test_ecf_host_overrides_shared_domain_bankruptcy() {
         "BKECF_LiveDB@txs.uscourts.gov",
         &["relay1.uscourts.gov", "txsbdb.txsb.gtwy.dcn"],
     );
-    assert_eq!(email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(), "txsb");
+    assert_eq!(
+        email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(),
+        "txsb"
+    );
 }
 
 /// A txsd NEF from the shared txs.uscourts.gov domain must still map to
@@ -221,7 +248,10 @@ fn test_ecf_host_confirms_shared_domain_district() {
         "ecf_txsd@txs.uscourts.gov",
         &["relay1.uscourts.gov", "txsddb.txsd.gtwy.dcn"],
     );
-    assert_eq!(email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(), "txsd");
+    assert_eq!(
+        email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(),
+        "txsd"
+    );
 }
 
 /// When the From domain and the ECF host agree, behavior is unchanged.
@@ -232,7 +262,10 @@ fn test_ecf_host_agreement_keeps_court() {
         "cacd_ecfmail@cacd.uscourts.gov",
         &["relay1.uscourts.gov", "cacddb.cacd.gtwy.dcn"],
     );
-    assert_eq!(email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(), "cacd");
+    assert_eq!(
+        email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(),
+        "cacd"
+    );
 }
 
 /// Courts like gas or mow use a From subdomain that differs from their
@@ -263,7 +296,10 @@ fn test_ecf_host_agreement_via_pacer_mapping_is_not_a_mismatch() {
     for (from_addr, ecf_host, expected_court) in emails {
         let email = make_court_email(from_addr, &["relay1.uscourts.gov", ecf_host]);
         let events = sentry::test::with_captured_events(|| {
-            assert_eq!(email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(), expected_court);
+            assert_eq!(
+                email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(),
+                expected_court
+            );
         });
         assert!(events.is_empty());
     }
@@ -279,7 +315,10 @@ fn test_ecf_host_mismatch_on_non_shared_domain_logs_error() {
         &["relay1.uscourts.gov", "nysbdb.nysb.gtwy.dcn"],
     );
     let events = sentry::test::with_captured_events(|| {
-        assert_eq!(email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(), "cacd");
+        assert_eq!(
+            email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(),
+            "cacd"
+        );
     });
     let expected_error = "ECF host court mismatch: From-derived court 'cacd' vs ECF host court \
                           'nysb' - message_id: test-ecf-host-message-id";
@@ -306,7 +345,10 @@ fn test_ecf_host_ignores_generic_gtwy_relays() {
         &["relay1.uscourts.gov", "smtp2-i.asbn.gtwy.dcn"],
     );
     assert!(EmailMap::get_ecf_host_court(&SESEvent::from(&email)).is_none());
-    assert_eq!(email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(), "txsd");
+    assert_eq!(
+        email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap(),
+        "txsd"
+    );
 }
 
 /// The last match across the Received headers (closest to the
@@ -317,7 +359,10 @@ fn test_ecf_host_uses_earliest_received_header() {
         "BKECF_LiveDB@txs.uscourts.gov",
         &["otherdb.other.gtwy.dcn", "txsbdb.txsb.gtwy.dcn"],
     );
-    assert_eq!(EmailMap::get_ecf_host_court(&((&email).into())).as_deref(), Some("txsb"));
+    assert_eq!(
+        EmailMap::get_ecf_host_court(&((&email).into())).as_deref(),
+        Some("txsb")
+    );
 }
 
 fn valid_domain_failure_ses_event() -> LambdaEvent<SimpleEmailEvent> {
@@ -379,11 +424,12 @@ async fn test_success() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(SimpleEmailService::builder()
+            ResponseTemplate::new(200).set_body_json(
+                SimpleEmailService::builder()
                     .mail(make_court_email("aaaa@bbb.com", &[][..]).mail)
                     .receipt(SimpleEmailReceipt::default())
-                    .build()),
+                    .build(),
+            ),
         )
         .mount(&server)
         .await;
@@ -460,10 +506,16 @@ async fn test_request_court_field_uses_ecf_host_for_shared_domain() {
     let mut event = pacer_event_two();
     let mail = &mut event.payload.records[0].ses.mail;
     mail.common_headers.from = vec!["<BKECF_LiveDB@txs.uscourts.gov>".to_string()];
-    mail.headers.push(SimpleEmailHeader::builder()
-        .name("Received".to_string())
-        .value("from txsbdb.txsb.gtwy.dcn (localhost.localdomain [127.0.0.1]) by txsbdb.txsb.gtwy.dcn with ESMTP; Mon, 28 Jun 2021 13:51:08 -0500".to_string())
-        .build());
+    mail.headers.push(
+        SimpleEmailHeader::builder()
+            .name("Received".to_string())
+            .value(
+                "from txsbdb.txsb.gtwy.dcn (localhost.localdomain [127.0.0.1]) by \
+                 txsbdb.txsb.gtwy.dcn with ESMTP; Mon, 28 Jun 2021 13:51:08 -0500"
+                    .to_string(),
+            )
+            .build(),
+    );
 
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -600,7 +652,9 @@ async fn test_report_request_for_invalid_court() {
         async {
             sentry::test::with_captured_events(|| {
                 tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(app::handler(event)).unwrap();
+                    tokio::runtime::Handle::current()
+                        .block_on(app::handler(event))
+                        .unwrap();
                 });
             })
         },
@@ -696,11 +750,16 @@ async fn test_texas_email_ignored_for_wrong_subscription() {
 fn test_destination_list_matches_subscription() {
     let email_map = EmailMap::default();
     let mut email = make_court_email("meow@meow.gov", &vec![][..]);
-    email.mail.headers.push(SimpleEmailHeader::builder()
-        .name("Return-Path".to_string())
-        .value("no-reply@sc-us.gov".to_string())
-        .build());
-    email.mail.destination = vec!["bob@test.email".to_string(), "notifications@scotus.recap.email".to_string()];
+    email.mail.headers.push(
+        SimpleEmailHeader::builder()
+            .name("Return-Path".to_string())
+            .value("no-reply@sc-us.gov".to_string())
+            .build(),
+    );
+    email.mail.destination = vec![
+        "bob@test.email".to_string(),
+        "notifications@scotus.recap.email".to_string(),
+    ];
 
     let m = email_map.destination_matches_subscription(&SESEvent::from(&email));
 
