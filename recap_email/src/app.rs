@@ -24,6 +24,12 @@ pub enum ValidationFailure {
     Domain,
     EventSourceMissing,
     Subscription,
+    Email,
+    UnrecognizedSubject,
+    UnrecognizedCourt,
+    MissingCommonFrom,
+    MissingCommonSubject,
+    AddressParsingFailed,
 }
 
 impl std::fmt::Display for ValidationFailure {
@@ -52,20 +58,25 @@ impl Response {
     }
 
     #[must_use]
-    pub fn source_missing_failure(body: Value) -> Response {
+    pub fn source_missing_failure() -> Response {
         Self {
             status_code: 415,
             failure: Err(ValidationFailure::EventSourceMissing),
-            body,
+            body: json!({"message": "PACER email receipt requires aws:ses eventSource."}),
         }
     }
 
     #[must_use]
-    pub fn dependency_failure(body: Value, failure: ValidationFailure) -> Response {
+    pub fn dependency_failure(event: &SESEvent<Unvalidated>, failure: ValidationFailure) -> Response {
+        error!(
+            "{} failed because {failure:?}",
+            event.get_combined_log_message()
+        );
         Self {
             status_code: 424,
             failure: Err(failure),
-            body,
+            body: serde_json::to_value(event.receipt())
+                .unwrap_or(json!({"error": "Failed to serialize message receipt"})),
         }
     }
 }
@@ -94,87 +105,31 @@ impl Default for EndpointMap {
 
 impl EndpointMap {
     /// Determine the appropriate CourtListener API endpoint to route an SES
-    /// email.
+    /// email to based on its `"Return-Path"` headers.
     ///
     /// If no known domain match is found, the function defaults to the
     /// [`self.recap_endpoint`].
     #[must_use]
-    pub fn get_cl_endpoint(&self, event: &SESEvent) -> Option<String> {
-        for email_address in event.get_header("Return-Path") {
-            let Some(email_address) = email_address.and_then(EmailAddress::parse_str) else {
-                continue;
-            };
-
-            if let Some(endpoint) = self.cl_endpoints.get(email_address.domain()) {
-                return endpoint.clone();
-            }
-        }
-        self.recap_endpoint.clone()
+    pub fn get_cl_endpoint(&self, addrs: &[Option<&str>]) -> Option<String> {
+        addrs.iter()
+            .filter_map(|addr| addr.and_then(EmailAddress::parse_str))
+            .find_map(|addr| self.cl_endpoints.get(addr.domain()).and_then(ToOwned::to_owned))
+            .or(self.recap_endpoint.clone())
     }
 
     /// Check whether an email address is one we accept updates from.
     #[must_use]
     pub fn check_valid_domain(&self, email_address: &str) -> bool {
-        let Some(email) = EmailAddress::parse_str(email_address) else {
-            return false;
-        };
-
-        self.cl_endpoints.contains_key(email.domain())
+        EmailAddress::parse_str(email_address)
+            .is_some_and(|email| self.cl_endpoints.contains_key(email.domain()))
     }
 
     #[must_use]
-    pub fn is_valid_domain(&self, email: &SESEvent) -> bool {
+    pub fn is_valid_domain(&self, addrs: &[Option<&str>]) -> bool {
         // Check all Return-Path headers comes from uscourts.gov
-        email.get_header("Return-Path").iter()
+        addrs.iter()
             .filter_map(|v| *v)
             .all(|email_address| self.check_valid_domain(email_address))
-    }
-}
-
-/// Shorthand to log a given validation failure and construct a [`Response`] object.
-///
-/// # Panics
-/// Will panic if the [`receipt`] parameter fails JSON serialization.
-pub fn validation_failure(email: &SESEvent, failure: ValidationFailure) -> Response {
-    error!(
-        "{} failed because {failure:?}",
-        email.get_combined_log_message()
-    );
-    Response {
-        status_code: 424,
-        failure: Err(failure),
-        body: serde_json::to_value(email.receipt()).unwrap(),
-    }
-}
-
-/// Shorthand to log a domain validation failure and construct a [`Response`] object.
-///
-/// # Panics
-/// Will panic if the [`receipt`] parameter fails JSON serialization.
-pub fn validation_domain_failure(email: &SESEvent) -> Response {
-    error!(
-        "{} failed domain validation.",
-        email.get_combined_log_message()
-    );
-    Response::dependency_failure(serde_json::to_value(email.receipt()).unwrap(), ValidationFailure::Domain)
-}
-
-/// Ensure that the destination of an email matches the subscription subdomain for its source
-/// domain.
-///
-/// # Panics
-/// Will panic if the [`receipt`] parameter fails to serialize to JSON.
-#[must_use]
-pub fn ignore_wrong_subscription(email: &SESEvent) -> Response {
-    warn!(
-        "{} ignored — destination does not match the required subscription subdomain for its \
-         source domain.",
-        email.get_combined_log_message()
-    );
-    Response {
-        status_code: 200,
-        failure: Err(ValidationFailure::Subscription),
-        body: serde_json::to_value(email.receipt()).unwrap(),
     }
 }
 
@@ -204,21 +159,27 @@ pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_
     }
 }
 
-pub struct SESEvent<'a>(&'a SimpleEmailService);
+pub struct Unvalidated;
+pub struct Validated {
+    court_id: String,
+    endpoint: Option<String>,
+}
 
-impl<'a> From<&'a SimpleEmailService> for SESEvent<'a> {
+pub struct SESEvent<'a, ValidationState>(&'a SimpleEmailService, ValidationState);
+
+impl<'a> From<&'a SimpleEmailService> for SESEvent<'a, Unvalidated> {
     fn from(event: &'a SimpleEmailService) -> Self {
-        Self(event)
+        Self(event, Unvalidated)
     }
 }
 
-impl<'a> From<SESEvent<'a>> for &'a SimpleEmailService {
-    fn from(event: SESEvent<'a>) -> Self {
+impl<'a, VS> From<SESEvent<'a, VS>> for &'a SimpleEmailService {
+    fn from(event: SESEvent<'a, VS>) -> Self {
         event.0
     }
 }
 
-impl<'a> SESEvent<'a> {
+impl<'a, VS> SESEvent<'a, VS> {
     pub fn email(&self) -> &SimpleEmailMessage {
         &self.0.mail
     }
@@ -261,129 +222,165 @@ impl<'a> SESEvent<'a> {
     }
 }
 
+impl<'a> SESEvent<'a, Unvalidated> {
+    fn verdict_require_pass(&self, verdict: &SimpleEmailVerdict, failure: ValidationFailure) -> Result<(), Response> {
+        match &verdict.status {
+            Some(status) => if status == "PASS" {
+                Ok(())
+            } else {
+                Err(Response::dependency_failure(self, failure))
+            },
+            None => Ok(()),
+        }
+    }
+
+    fn verdict_require_pass_or_gray(&self, verdict: &SimpleEmailVerdict, failure: ValidationFailure) -> Result<(), Response> {
+        match &verdict.status {
+            Some(status) => if status == "PASS" || status == "GRAY" {
+                Ok(())
+            } else {
+                Err(Response::dependency_failure(self, failure))
+            },
+            None => Ok(()),
+        }
+    }
+
+    /// Consume and validate this SES event. Performs all necessary validation before the event can
+    /// be sent to CourtListener.
+    ///
+    /// # Errors
+    /// Will return an error if any validation step fails.
+    pub fn validate(self) -> Result<SESEvent<'a, Validated>, Response> {
+        self.verdict_require_pass(&self.0.receipt.spam_verdict, ValidationFailure::Spam)?;
+        self.verdict_require_pass(&self.0.receipt.virus_verdict, ValidationFailure::Virus)?;
+        self.verdict_require_pass_or_gray(&self.0.receipt.spf_verdict, ValidationFailure::Spf)?;
+        self.verdict_require_pass_or_gray(&self.0.receipt.dmarc_verdict, ValidationFailure::Dmarc)?;
+        self.verdict_require_pass_or_gray(&self.0.receipt.dkim_verdict, ValidationFailure::Dkim)?;
+
+        let endpoint_map = EndpointMap::default();
+        let email_map = EmailMap::default();
+
+        if !endpoint_map.is_valid_domain(&self.get_header("Return-Path")) {
+            return Err(Response::dependency_failure(&self, ValidationFailure::Domain));
+        }
+
+        if !email_map.destination_matches_subscription(&self) {
+            warn!(
+                "{} ignored — destination does not match the required subscription subdomain for its source domain.",
+                self.get_combined_log_message()
+            );
+            return Err(Response {
+                status_code: 200,
+                failure: Err(ValidationFailure::Subscription),
+                body: serde_json::to_value(&self.0.receipt)
+                    .unwrap_or(json!({"error": "Failed to serialize message receipt"})),
+            });
+        }
+
+        let court_id = match email_map.email_to_cl_id(&self) {
+            Ok(id) => id,
+            Err(e) => return Err(Response::dependency_failure(&self, e)),
+        };
+        if email_map.ignored_subdomains.contains(&court_id.as_str()) {
+            return Err(Response::dependency_failure(&self, ValidationFailure::Email));
+        }
+
+
+        Ok(SESEvent(self.0, Validated {
+            court_id,
+            endpoint: endpoint_map.get_cl_endpoint(&self.get_header("Return-Path")),
+        }))
+    }
+}
+
+impl SESEvent<'_, Validated> {
+    /// Send an event which has passed validation to the CourtListener endpoint for the given court.
+    ///
+    /// # Errors
+    /// Will return an error if the send attempt fails all retries or if no CourtListener endpoint
+    /// is configured for this event.
+    pub async fn send_to_court_listener(&self) -> Result<Response, Error> {
+        let endpoint = self.1.endpoint.clone().ok_or("no CourtListener endpoint configured")?;
+        utils::retry(is_retryable, 5, 10, 3, || async {
+            println!(
+                "{} sending to Court Listener API.",
+                self.get_combined_log_message()
+            );
+
+            // DEV DOMAIN: http://host.docker.internal:8000
+            let court_listener_response = reqwest::Client::new()
+                .post(&endpoint)
+                .json(&CLPayload::from(self))
+                .timeout(Duration::from_secs(5))
+                .header(
+                    "Authorization",
+                    format!(
+                        "Token {}",
+                        env::var("AUTH_TOKEN").unwrap_or_else(|_| "None".to_string())
+                    ),
+                )
+                .send()
+                .await?;
+
+            let status_code = court_listener_response.status().as_u16();
+            if [502, 503, 504].contains(&status_code) {
+                // Raise an HTTPError for Bad Gateway, Service Unavailable or
+                // Gateway Timeout status codes.
+                court_listener_response.error_for_status_ref()?;
+            }
+
+            let response_json = court_listener_response.json().await?;
+
+            log_invalid_court_error(status_code, &response_json, &self.email().message_id);
+
+            println!("Got status_code={status_code} and content {response_json}");
+
+            Ok(Response {
+                status_code: 200,
+                failure: Ok(()),
+                body: response_json,
+            })
+        })
+            .await
+    }
+}
+
+#[derive(Serialize)]
+pub struct CLPayload<'a> {
+    mail: &'a SimpleEmailMessage,
+    receipt: &'a SimpleEmailReceipt,
+    court: &'a str,
+}
+
+impl<'a> From<&'a SESEvent<'a, Validated>> for CLPayload<'a> {
+    fn from(event: &'a SESEvent<'a, Validated>) -> Self {
+        Self {
+            mail: &event.0.mail,
+            receipt: &event.0.receipt,
+            court: &event.1.court_id,
+        }
+    }
+}
+
 
 fn is_retryable(e: &Error) -> bool {
     e.downcast_ref::<reqwest::Error>()
         .is_some_and(|e| e.is_connect() || e.is_timeout() || e.is_status())
 }
 
-/// Send an event which has passed validation to the CourtListener endpoint for the given court.
-///
-/// # Errors
-/// Will return an error if the send attempt fails all retries.
-pub async fn send_to_court_listener(
-    endpoint_map: &EndpointMap,
-    event: &SESEvent<'_>,
-    court_id: &str,
-) -> Result<Response, Error> {
-    utils::retry(is_retryable, 5, 10, 3, || async {
-        println!(
-            "{} sending to Court Listener API.",
-            event.get_combined_log_message()
-        );
-        let endpoint = endpoint_map.get_cl_endpoint(event).ok_or("no CourtListener endpoint configured")?;
-
-        // DEV DOMAIN: http://host.docker.internal:8000
-        let court_listener_response = reqwest::Client::new()
-            .post(&endpoint)
-            .json(&json!({
-                "mail": event.email(),
-                "receipt": event.receipt(),
-                "court": court_id,
-            }))
-            .timeout(Duration::from_secs(5))
-            .header(
-                "Authorization",
-                format!(
-                    "Token {}",
-                    env::var("AUTH_TOKEN").unwrap_or_else(|_| "None".to_string())
-                ),
-            )
-            .send()
-            .await?;
-
-        let status_code = court_listener_response.status().as_u16();
-        if [502, 503, 504].contains(&status_code) {
-            // Raise an HTTPError for Bad Gateway, Service Unavailable or
-            // Gateway Timeout status codes.
-            court_listener_response.error_for_status_ref()?;
-        }
-
-        let response_json = court_listener_response.json().await?;
-
-        log_invalid_court_error(status_code, &response_json, &event.email().message_id);
-
-        println!("Got status_code={status_code} and content {response_json}");
-
-        Ok(Response {
-            status_code: 200,
-            failure: Ok(()),
-            body: response_json,
-        })
-    })
-    .await
-}
-
-fn verdict_pass(verdict: &SimpleEmailVerdict) -> bool {
-    match &verdict.status {
-        Some(status) => status == "PASS",
-        None => true,
-    }
-}
-
-fn verdict_pass_or_gray(verdict: &SimpleEmailVerdict) -> bool {
-    match &verdict.status {
-        Some(status) => status == "PASS" || status == "GRAY",
-        None => true,
-    }
-}
-
 /// Forward an SES email event to the appropriate CourtListener endpoint if it is valid.
 ///
 /// # Errors
-/// Will return an error if the email event fails validation for any reason.
+/// Will return an error if the event is valid, but fails to successfully send to CourtListener.
 pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Response, Error> {
-    let endpoint_map = EndpointMap::default();
-    let email_map = EmailMap::default();
-
     let Some(ses_event) = event.payload.records.first().map(|r| SESEvent::from(&r.ses)) else {
-        let body = json!({"message": "PACER email receipt requires aws:ses eventSource."});
-
-        return Ok(Response::source_missing_failure(body));
+        return Ok(Response::source_missing_failure());
     };
 
-    if !verdict_pass(&ses_event.receipt().spam_verdict) {
-        return Ok(validation_failure(&ses_event, ValidationFailure::Spam));
-    }
+    let ses_event = match ses_event.validate() {
+        Ok(ses_event) => ses_event,
+        Err(response) => return Ok(response)
+    };
 
-    if !verdict_pass(&ses_event.receipt().virus_verdict) {
-        return Ok(validation_failure(&ses_event, ValidationFailure::Virus));
-    }
-
-    if !verdict_pass_or_gray(&ses_event.receipt().spf_verdict) {
-        return Ok(validation_failure(&ses_event, ValidationFailure::Spf));
-    }
-
-    if !verdict_pass_or_gray(&ses_event.receipt().dmarc_verdict) {
-        return Ok(validation_failure(&ses_event, ValidationFailure::Dmarc));
-    }
-
-    if !verdict_pass_or_gray(&ses_event.receipt().dkim_verdict) {
-        return Ok(validation_failure(&ses_event, ValidationFailure::Dkim));
-    }
-
-    if !endpoint_map.is_valid_domain(&ses_event) {
-        return Ok(validation_failure(&ses_event, ValidationFailure::Domain));
-    }
-
-    if !email_map.destination_matches_subscription(&ses_event) {
-        return Ok(ignore_wrong_subscription(&ses_event));
-    }
-
-    let court_id = email_map.email_to_cl_id(&ses_event)?;
-    if email_map.ignored_subdomains.contains(&court_id.as_str()) {
-        return Ok(validation_domain_failure(&ses_event));
-    }
-
-    send_to_court_listener(&endpoint_map, &ses_event, &court_id).await
+    ses_event.send_to_court_listener().await
 }

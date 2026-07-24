@@ -734,5 +734,5 @@ async fn test_ignore_messages_from_invalid_court_ids() {
     .await
     .unwrap();
     assert_eq!(response.status_code, 424);
-    assert_eq!(response.failure, Err(ValidationFailure::Domain));
+    assert_eq!(response.failure, Err(ValidationFailure::Email));
 }

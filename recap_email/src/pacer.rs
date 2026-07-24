@@ -1,6 +1,5 @@
-use crate::app::SESEvent;
+use crate::app::{SESEvent, Unvalidated, ValidationFailure};
 use crate::utils::EmailAddress;
-use lambda_runtime::Error;
 use regex::regex;
 use std::collections::HashMap;
 
@@ -78,7 +77,7 @@ impl EmailMap {
     /// Returns the lowercase PACER court id, or None if no ECF database host is
     /// present (e.g. non-NEF mail from court staff or mailing lists).
     #[must_use]
-    pub fn get_ecf_host_court<'a>(event: &'a SESEvent) -> Option<&'a str> {
+    pub fn get_ecf_host_court<'a, VS>(event: &'a SESEvent<VS>) -> Option<&'a str> {
         // Matches the originating ECF database hostname that courts stamp into the
         // earliest Received headers of every NEF, e.g. "txsbdb.txsb.gtwy.dcn". The
         // "<name>db." prefix is required so generic court mail relays under gtwy.dcn
@@ -95,9 +94,11 @@ impl EmailMap {
     ///
     /// # Errors
     /// Will return an error message if the email domain is not recognized.
-    pub fn email_to_cl_id(&self, event: &SESEvent) -> Result<String, Error> {
-        let from_addr = EmailAddress::parse_str(event.email().common_headers.from.first()
-            .ok_or("email is missing common_headers.from")?).ok_or("Email parsing failed")?;
+    pub fn email_to_cl_id<VS>(&self, event: &SESEvent<VS>) -> Result<String, ValidationFailure> {
+        let from_addr = EmailAddress::parse_str(event.email()
+            .common_headers.from.first()
+            .ok_or(ValidationFailure::MissingCommonFrom)?
+        ).ok_or(ValidationFailure::AddressParsingFailed)?;
         let domain = from_addr.domain();
         if domain == "fedcourts.us" || domain == "uscourts.gov" {
             let pacer_id = from_addr.subdomain();
@@ -131,7 +132,7 @@ impl EmailMap {
         let maybe_cl_id = self.domain_to_cl_id.get(from_addr.domain()).copied().unwrap_or(from_addr.domain());
         if maybe_cl_id == "texas" {
             let subject = event.email().common_headers.subject.clone()
-                .ok_or("email is missing common_headers.subject")?;
+                .ok_or(ValidationFailure::MissingCommonSubject)?;
             return Ok(get_tx_court_id_from_subject(&subject)?.to_string());
         }
         Ok(maybe_cl_id.to_string())
@@ -146,7 +147,7 @@ impl EmailMap {
     /// return `false`. This lets us handle potential emails with multiple destinations
     /// correctly.
     #[must_use]
-    pub fn destination_matches_subscription(&self, event: &SESEvent) -> bool {
+    pub fn destination_matches_subscription(&self, event: &SESEvent<Unvalidated>) -> bool {
         let Some(source_domain) = event.get_source_domain() else { return true };
         let Some(required) = self.domain_to_subscription.get(source_domain) else {
             return true;
@@ -170,10 +171,10 @@ impl EmailMap {
 /// # Errors
 /// Returns an error message the subject line format or the court name extracted from it is
 /// unrecognized.
-pub fn get_tx_court_id_from_subject(subject: &str) -> Result<&'static str, Error> {
+pub fn get_tx_court_id_from_subject(subject: &str) -> Result<&'static str, ValidationFailure> {
     let prefix = "Automated Case Update from ";
     if !subject.starts_with(prefix) {
-        return Err(format!("Texas: Invalid subject {subject}").into());
+        return Err(ValidationFailure::UnrecognizedSubject);
     }
     let court_name = subject[prefix.len()..].to_lowercase();
     match court_name.as_str() {
@@ -194,6 +195,6 @@ pub fn get_tx_court_id_from_subject(subject: &str) -> Result<&'static str, Error
         "fifteenth court of appeals" => Ok("txctapp15"),
         "court of criminal appeals" => Ok("texcrimapp"),
         "supreme court" => Ok("tex"),
-        _ => Err(format!("Texas: unknown court name {court_name}").into()),
+        _ => Err(ValidationFailure::UnrecognizedCourt),
     }
 }
