@@ -1,6 +1,5 @@
-use crate::app::{get_ses_email_headers, get_source_domain};
+use crate::app::SESEvent;
 use crate::utils::EmailAddress;
-use aws_lambda_events::ses::SimpleEmailMessage;
 use lambda_runtime::Error;
 use regex::regex;
 use std::collections::HashMap;
@@ -55,7 +54,7 @@ impl Default for EmailMap {
 impl EmailMap {
     #[must_use]
     pub fn pacer_to_cl_id<'a>(&self, pacer_id: &'a str) -> &'a str {
-        self.pacer_to_cl_id.get(pacer_id).map(|v| *v).unwrap_or(pacer_id)
+        self.pacer_to_cl_id.get(pacer_id).copied().unwrap_or(pacer_id)
     }
 
     #[must_use]
@@ -79,25 +78,25 @@ impl EmailMap {
     /// Returns the lowercase PACER court id, or None if no ECF database host is
     /// present (e.g. non-NEF mail from court staff or mailing lists).
     #[must_use]
-    pub fn get_ecf_host_court(email: &SimpleEmailMessage) -> Option<String> {
+    pub fn get_ecf_host_court<'a>(event: &'a SESEvent) -> Option<&'a str> {
         // Matches the originating ECF database hostname that courts stamp into the
         // earliest Received headers of every NEF, e.g. "txsbdb.txsb.gtwy.dcn". The
         // "<name>db." prefix is required so generic court mail relays under gtwy.dcn
         // (e.g. "smtp2-i.asbn.gtwy.dcn") don't match.
         let ecf_host_re = regex!(r"(?i)\b[a-z0-9]+db\.([a-z0-9]+)\.gtwy\.dcn");
-        let received = get_ses_email_headers(email, "Received").iter().filter_map(Clone::clone).collect::<Vec<_>>().join(" ");
-        ecf_host_re
-            .captures_iter(&received)
-            .last()
-            .map(|captures| captures[1].to_lowercase())
+        event.get_header("Received").iter()
+            .rev()
+            .filter_map(Clone::clone)
+            .find_map(|v| ecf_host_re.captures(v))
+            .and_then(|captures| captures.get(1).map(|m| m.as_str()))
     }
 
     /// Attempts to map a case update email address to a CL Court ID.
     ///
     /// # Errors
     /// Will return an error message if the email domain is not recognized.
-    pub fn email_to_cl_id(&self, email: &SimpleEmailMessage) -> Result<String, Error> {
-        let from_addr = EmailAddress::parse_str(email.common_headers.from.first()
+    pub fn email_to_cl_id(&self, event: &SESEvent) -> Result<String, Error> {
+        let from_addr = EmailAddress::parse_str(event.email().common_headers.from.first()
             .ok_or("email is missing common_headers.from")?).ok_or("Email parsing failed")?;
         let domain = from_addr.domain();
         if domain == "fedcourts.us" || domain == "uscourts.gov" {
@@ -105,23 +104,22 @@ impl EmailMap {
             let pacer_id_lower = pacer_id.to_lowercase();
             let from_court = self.pacer_to_cl_id(pacer_id);
             let from_court_lower = self.pacer_to_cl_id(&pacer_id_lower);
-            let ecf_court = Self::get_ecf_host_court(email);
-            let ecf_cl_court = ecf_court.as_deref().map(|v| self.pacer_to_cl_id(v));
+            let ecf_court = Self::get_ecf_host_court(event);
+            let ecf_cl_court = ecf_court.map(|v| self.pacer_to_cl_id(v));
             // Compare mapped CL courts, not raw subdomains: courts like gas or
             // mow use a From subdomain that differs from their ECF host court
             // (gasddb.gasd.gtwy.dcn) but both resolve to the same CL court in
             // map_pacer_to_cl_id.
-            if let (Some(ecf_court), Some(ecf_cl_court)) = (ecf_court.as_deref(), ecf_cl_court)
+            if let (Some(ecf_court), Some(ecf_cl_court)) = (ecf_court, ecf_cl_court)
                 && ecf_cl_court != from_court_lower
             {
-                if let Some(shared_courts) = self.shared_domain_courts
-                    .get(pacer_id_lower.as_str())
+                if let Some(shared_courts) = self.shared_domain_courts.get(pacer_id_lower.as_str())
                     && shared_courts.contains(&ecf_court) {
                     return Ok(ecf_cl_court.to_string());
                 }
                 let error_message = format!(
                     "ECF host court mismatch: From-derived court '{pacer_id}' vs ECF host court \
-                 '{ecf_court}' - message_id: {}", email.message_id.clone().unwrap_or_default(),
+                 '{ecf_court}' - message_id: {}", event.email().message_id.clone().unwrap_or_default(),
                 );
                 sentry::with_scope(
                     |scope| scope.set_fingerprint(Some(&["ecf-host-court-mismatch"])),
@@ -130,9 +128,9 @@ impl EmailMap {
             }
             return Ok(from_court.to_string());
         }
-        let maybe_cl_id = self.domain_to_cl_id.get(from_addr.domain()).map(|v| *v).unwrap_or(from_addr.domain());
+        let maybe_cl_id = self.domain_to_cl_id.get(from_addr.domain()).copied().unwrap_or(from_addr.domain());
         if maybe_cl_id == "texas" {
-            let subject = email.common_headers.subject.clone()
+            let subject = event.email().common_headers.subject.clone()
                 .ok_or("email is missing common_headers.subject")?;
             return Ok(get_tx_court_id_from_subject(&subject)?.to_string());
         }
@@ -148,13 +146,13 @@ impl EmailMap {
     /// return `false`. This lets us handle potential emails with multiple destinations
     /// correctly.
     #[must_use]
-    pub fn destination_matches_subscription(&self, email: &SimpleEmailMessage) -> bool {
-        let Some(source_domain) = get_source_domain(email) else { return true };
+    pub fn destination_matches_subscription(&self, event: &SESEvent) -> bool {
+        let Some(source_domain) = event.get_source_domain() else { return true };
         let Some(required) = self.domain_to_subscription.get(source_domain) else {
             return true;
         };
 
-        for destination in &email.destination {
+        for destination in &event.email().destination {
             let Some(address) = EmailAddress::parse_str(destination) else { continue };
             let dest_domain = &address.address().to_lowercase();
 

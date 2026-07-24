@@ -1,14 +1,14 @@
 use crate::pacer::EmailMap;
 use crate::utils;
 use crate::utils::EmailAddress;
-use aws_lambda_events::ses::{SimpleEmailEvent, SimpleEmailMessage, SimpleEmailReceipt, SimpleEmailVerdict};
+use aws_lambda_events::ses::{SimpleEmailEvent, SimpleEmailMessage, SimpleEmailReceipt, SimpleEmailService, SimpleEmailVerdict};
 use lambda_runtime::tracing::{error, warn};
 use lambda_runtime::{Error, LambdaEvent};
 use regex::regex;
 use serde::Serialize;
 use serde_json::{
-    json,
     Value,
+    json,
 };
 use std::collections::HashMap;
 use std::env;
@@ -99,8 +99,8 @@ impl EndpointMap {
     /// If no known domain match is found, the function defaults to the
     /// [`self.recap_endpoint`].
     #[must_use]
-    pub fn get_cl_endpoint(&self, email: &SimpleEmailMessage) -> Option<String> {
-        for email_address in get_ses_email_headers(email, "Return-Path") {
+    pub fn get_cl_endpoint(&self, event: &SESEvent) -> Option<String> {
+        for email_address in event.get_header("Return-Path") {
             let Some(email_address) = email_address.and_then(EmailAddress::parse_str) else {
                 continue;
             };
@@ -123,50 +123,27 @@ impl EndpointMap {
     }
 
     #[must_use]
-    pub fn is_valid_domain(&self, email: &SimpleEmailMessage) -> bool {
+    pub fn is_valid_domain(&self, email: &SESEvent) -> bool {
         // Check all Return-Path headers comes from uscourts.gov
-        get_ses_email_headers(email, "Return-Path").iter()
+        email.get_header("Return-Path").iter()
             .filter_map(|v| *v)
             .all(|email_address| self.check_valid_domain(email_address))
     }
-}
-
-/// Extract values for the header with name [`header_name`] from an SES email payload.
-#[must_use]
-pub fn get_ses_email_headers<'a>(email: &'a SimpleEmailMessage, header_name: &str) -> Vec<Option<&'a str>> {
-    email.headers.iter()
-        .filter(|header| header.name.as_ref().is_some_and(|s| s.eq_ignore_ascii_case(header_name)))
-        .map(|header| header.value.as_deref())
-        .collect()
-}
-
-#[must_use]
-pub fn get_combined_log_message(email: &SimpleEmailMessage) -> String {
-    let subjects = get_ses_email_headers(email, "Subject");
-    let subject = subjects
-        .last().and_then(|subject| subject.as_deref());
-
-    format!(
-        "Email ID {:?} with {subject:?}, from {:?} to {:?}",
-        email.message_id,
-        email.source,
-        email.destination
-    )
 }
 
 /// Shorthand to log a given validation failure and construct a [`Response`] object.
 ///
 /// # Panics
 /// Will panic if the [`receipt`] parameter fails JSON serialization.
-pub fn validation_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt, failure: ValidationFailure) -> Response {
+pub fn validation_failure(email: &SESEvent, failure: ValidationFailure) -> Response {
     error!(
         "{} failed because {failure:?}",
-        get_combined_log_message(email)
+        email.get_combined_log_message()
     );
     Response {
         status_code: 424,
         failure: Err(failure),
-        body: serde_json::to_value(receipt).unwrap(),
+        body: serde_json::to_value(email.receipt()).unwrap(),
     }
 }
 
@@ -174,25 +151,12 @@ pub fn validation_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailRecei
 ///
 /// # Panics
 /// Will panic if the [`receipt`] parameter fails JSON serialization.
-pub fn validation_domain_failure(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt) -> Response {
+pub fn validation_domain_failure(email: &SESEvent) -> Response {
     error!(
         "{} failed domain validation.",
-        get_combined_log_message(email)
+        email.get_combined_log_message()
     );
-    Response::dependency_failure(serde_json::to_value(receipt).unwrap(), ValidationFailure::Domain)
-}
-
-/// Return the registrable domain from the email's `"Return-Path"` header,
-/// or None if no `"Return-Path"` is present or parseable.
-#[must_use]
-pub fn get_source_domain(email: &SimpleEmailMessage) -> Option<&str> {
-    for email_address in get_ses_email_headers(email, "Return-Path") {
-        let Some(email_address) = email_address.and_then(EmailAddress::parse_str) else {
-            continue;
-        };
-        return Some(email_address.domain());
-    }
-    None
+    Response::dependency_failure(serde_json::to_value(email.receipt()).unwrap(), ValidationFailure::Domain)
 }
 
 /// Ensure that the destination of an email matches the subscription subdomain for its source
@@ -201,16 +165,16 @@ pub fn get_source_domain(email: &SimpleEmailMessage) -> Option<&str> {
 /// # Panics
 /// Will panic if the [`receipt`] parameter fails to serialize to JSON.
 #[must_use]
-pub fn ignore_wrong_subscription(email: &SimpleEmailMessage, receipt: &SimpleEmailReceipt) -> Response {
+pub fn ignore_wrong_subscription(email: &SESEvent) -> Response {
     warn!(
         "{} ignored — destination does not match the required subscription subdomain for its \
          source domain.",
-        get_combined_log_message(email)
+        email.get_combined_log_message()
     );
     Response {
         status_code: 200,
         failure: Err(ValidationFailure::Subscription),
-        body: serde_json::to_value(receipt).unwrap(),
+        body: serde_json::to_value(email.receipt()).unwrap(),
     }
 }
 
@@ -240,6 +204,64 @@ pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_
     }
 }
 
+pub struct SESEvent<'a>(&'a SimpleEmailService);
+
+impl<'a> From<&'a SimpleEmailService> for SESEvent<'a> {
+    fn from(event: &'a SimpleEmailService) -> Self {
+        Self(event)
+    }
+}
+
+impl<'a> From<SESEvent<'a>> for &'a SimpleEmailService {
+    fn from(event: SESEvent<'a>) -> Self {
+        event.0
+    }
+}
+
+impl<'a> SESEvent<'a> {
+    pub fn email(&self) -> &SimpleEmailMessage {
+        &self.0.mail
+    }
+
+    pub fn receipt(&self) -> &SimpleEmailReceipt {
+        &self.0.receipt
+    }
+
+    /// Extract values for the header with name [`header_name`] from an SES email payload.
+    #[must_use]
+    pub fn get_header(&self, key: &'a str) -> Vec<Option<&'a str>> {
+        self.0.mail.headers.iter()
+            .filter(|header| header.name.as_ref().is_some_and(|s| s.eq_ignore_ascii_case(key)))
+            .map(|header| header.value.as_deref())
+            .collect()
+    }
+
+    #[must_use]
+    pub fn get_combined_log_message(&self) -> String {
+        let subjects = self.get_header("Subject");
+        let subject = subjects
+            .last().and_then(|subject| subject.as_deref());
+
+        format!(
+            "Email ID {:?} with {subject:?}, from {:?} to {:?}",
+            self.0.mail.message_id,
+            self.0.mail.source,
+            self.0.mail.destination
+        )
+    }
+
+    /// Return the registrable domain from the email's `"Return-Path"` header,
+    /// or None if no `"Return-Path"` is present or parseable.
+    #[must_use]
+    pub fn get_source_domain(&self) -> Option<&'a str> {
+        self.get_header("Return-Path").iter()
+            .filter_map(|v| v.and_then(EmailAddress::parse_str))
+            .map(|email_address| email_address.domain())
+            .next()
+    }
+}
+
+
 fn is_retryable(e: &Error) -> bool {
     e.downcast_ref::<reqwest::Error>()
         .is_some_and(|e| e.is_connect() || e.is_timeout() || e.is_status())
@@ -251,23 +273,22 @@ fn is_retryable(e: &Error) -> bool {
 /// Will return an error if the send attempt fails all retries.
 pub async fn send_to_court_listener(
     endpoint_map: &EndpointMap,
-    email: &SimpleEmailMessage,
-    receipt: &SimpleEmailReceipt,
+    event: &SESEvent<'_>,
     court_id: &str,
 ) -> Result<Response, Error> {
     utils::retry(is_retryable, 5, 10, 3, || async {
         println!(
             "{} sending to Court Listener API.",
-            get_combined_log_message(email)
+            event.get_combined_log_message()
         );
-        let endpoint = endpoint_map.get_cl_endpoint(email).ok_or("no CourtListener endpoint configured")?;
+        let endpoint = endpoint_map.get_cl_endpoint(event).ok_or("no CourtListener endpoint configured")?;
 
         // DEV DOMAIN: http://host.docker.internal:8000
         let court_listener_response = reqwest::Client::new()
             .post(&endpoint)
             .json(&json!({
-                "mail": email,
-                "receipt": receipt,
+                "mail": event.email(),
+                "receipt": event.receipt(),
                 "court": court_id,
             }))
             .timeout(Duration::from_secs(5))
@@ -290,7 +311,7 @@ pub async fn send_to_court_listener(
 
         let response_json = court_listener_response.json().await?;
 
-        log_invalid_court_error(status_code, &response_json, &email.message_id);
+        log_invalid_court_error(status_code, &response_json, &event.email().message_id);
 
         println!("Got status_code={status_code} and content {response_json}");
 
@@ -325,44 +346,44 @@ pub async fn handler(event: LambdaEvent<SimpleEmailEvent>) -> Result<Response, E
     let endpoint_map = EndpointMap::default();
     let email_map = EmailMap::default();
 
-    let Some(ses_record) = event.payload.records.first().map(|r| &r.ses) else {
+    let Some(ses_event) = event.payload.records.first().map(|r| SESEvent::from(&r.ses)) else {
         let body = json!({"message": "PACER email receipt requires aws:ses eventSource."});
 
         return Ok(Response::source_missing_failure(body));
     };
 
-    if !verdict_pass(&ses_record.receipt.spam_verdict) {
-        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Spam));
+    if !verdict_pass(&ses_event.receipt().spam_verdict) {
+        return Ok(validation_failure(&ses_event, ValidationFailure::Spam));
     }
 
-    if !verdict_pass(&ses_record.receipt.virus_verdict) {
-        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Virus));
+    if !verdict_pass(&ses_event.receipt().virus_verdict) {
+        return Ok(validation_failure(&ses_event, ValidationFailure::Virus));
     }
 
-    if !verdict_pass_or_gray(&ses_record.receipt.spf_verdict) {
-        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Spf));
+    if !verdict_pass_or_gray(&ses_event.receipt().spf_verdict) {
+        return Ok(validation_failure(&ses_event, ValidationFailure::Spf));
     }
 
-    if !verdict_pass_or_gray(&ses_record.receipt.dmarc_verdict) {
-        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Dmarc));
+    if !verdict_pass_or_gray(&ses_event.receipt().dmarc_verdict) {
+        return Ok(validation_failure(&ses_event, ValidationFailure::Dmarc));
     }
 
-    if !verdict_pass_or_gray(&ses_record.receipt.dkim_verdict) {
-        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Dkim));
+    if !verdict_pass_or_gray(&ses_event.receipt().dkim_verdict) {
+        return Ok(validation_failure(&ses_event, ValidationFailure::Dkim));
     }
 
-    if !endpoint_map.is_valid_domain(&ses_record.mail) {
-        return Ok(validation_failure(&ses_record.mail, &ses_record.receipt, ValidationFailure::Domain));
+    if !endpoint_map.is_valid_domain(&ses_event) {
+        return Ok(validation_failure(&ses_event, ValidationFailure::Domain));
     }
 
-    if !email_map.destination_matches_subscription(&ses_record.mail) {
-        return Ok(ignore_wrong_subscription(&ses_record.mail, &ses_record.receipt));
+    if !email_map.destination_matches_subscription(&ses_event) {
+        return Ok(ignore_wrong_subscription(&ses_event));
     }
 
-    let court_id = email_map.email_to_cl_id(&ses_record.mail)?;
+    let court_id = email_map.email_to_cl_id(&ses_event)?;
     if email_map.ignored_subdomains.contains(&court_id.as_str()) {
-        return Ok(validation_domain_failure(&ses_record.mail, &ses_record.receipt));
+        return Ok(validation_domain_failure(&ses_event));
     }
 
-    send_to_court_listener(&endpoint_map, &ses_record.mail, &ses_record.receipt, &court_id).await
+    send_to_court_listener(&endpoint_map, &ses_event, &court_id).await
 }
