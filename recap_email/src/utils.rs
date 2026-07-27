@@ -6,6 +6,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use lambda_runtime::Error;
+use lambda_runtime::tracing::info;
 use serde::{
     Serialize,
     Serializer,
@@ -38,7 +39,7 @@ where
         match f().await {
             Ok(value) => return Ok(value),
             Err(e) if exception_to_check(&e) => {
-                println!("{e}, Retrying in {mdelay} seconds...");
+                info!("{e}, Retrying in {mdelay} seconds...");
                 tokio::time::sleep(Duration::from_secs(mdelay)).await;
                 mtries -= 1;
                 mdelay *= backoff;
@@ -127,7 +128,7 @@ impl<'a> EmailAddress<'a> {
     /// Get the subdomain of the address component (i.e. "tx" in "tx.uscourts.gov").
     #[must_use]
     pub fn subdomain(&self) -> &'a str {
-        let end = self.subdomain_index();
+        let end = self.subdomain_index().max(self.at_index + 1);
         &self.value[(self.at_index + 1)..end]
     }
 

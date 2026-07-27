@@ -138,7 +138,7 @@ async fn test_dmarc_failure() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_domains_failed() {
-    let endpoint_map = EndpointMap::default();
+    let endpoint_map = EndpointMap::from_env();
     let no_valid_emails = [
         "prvs=144d0cba7=sender@example.com",
         "prvs=144d0cba7=sender@.test.example.com",
@@ -153,7 +153,7 @@ async fn test_multiple_domains_failed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_domains_success() {
-    let endpoint_map = EndpointMap::default();
+    let endpoint_map = EndpointMap::from_env();
     let event = spam_failure_ses_event();
     with_env(&[], async {
         app::handler(event).await.unwrap();
@@ -178,7 +178,8 @@ fn test_get_cl_court_id_using_mapping() {
     let email_map = EmailMap::default();
     for (pacer_id, expected_cl) in email_map.pacer_to_cl_id.clone() {
         let email = make_court_email(&format!("ecfnotices@{pacer_id}.uscourts.gov"), &vec![][..]);
-        let result = email_map.email_to_cl_id(&SESEvent::from(&email)).unwrap();
+        let event = SESEvent::from(&email);
+        let result = email_map.email_to_cl_id(&event).unwrap();
         assert_eq!(
             result, expected_cl,
             "For PACER id '{pacer_id}', expected CL id '{expected_cl}' but got '{result}'."
@@ -329,7 +330,7 @@ fn test_ecf_host_mismatch_on_non_shared_domain_logs_error() {
         events[0]
             .fingerprint
             .iter()
-            .map(|f| f.as_ref())
+            .map(AsRef::as_ref)
             .collect::<Vec<_>>(),
         vec!["ecf-host-court-mismatch"]
     );
@@ -375,7 +376,7 @@ async fn test_valid_domain_failed() {
     let response = with_env(&[], app::handler(event)).await.unwrap();
 
     assert_eq!(response.status_code, 424);
-    assert_eq!(response.failure, Err(ValidationFailure::Domain));
+    assert_eq!(response.failure, Some(ValidationFailure::Domain));
 }
 
 fn invalid_return_path_ses_event() -> LambdaEvent<SimpleEmailEvent> {
@@ -388,7 +389,7 @@ async fn test_invalid_return_path() {
     let response = with_env(&[], app::handler(event)).await.unwrap();
 
     assert_eq!(response.status_code, 424);
-    assert_eq!(response.failure, Err(ValidationFailure::Domain));
+    assert_eq!(response.failure, Some(ValidationFailure::Domain));
 }
 
 fn ses_event() -> LambdaEvent<SimpleEmailEvent> {
@@ -670,7 +671,7 @@ async fn test_report_request_for_invalid_court() {
         events[0]
             .fingerprint
             .iter()
-            .map(|f| f.as_ref())
+            .map(AsRef::as_ref)
             .collect::<Vec<_>>(),
         vec!["invalid-court-pk"]
     );
@@ -707,7 +708,7 @@ async fn test_scotus_email_ignored_for_wrong_subscription() {
     .unwrap();
 
     assert_eq!(response.status_code, 200);
-    assert_eq!(response.failure, Err(ValidationFailure::Subscription));
+    assert_eq!(response.failure, Some(ValidationFailure::Subscription));
     assert_eq!(server.received_requests().await.unwrap().len(), 0);
 }
 
@@ -742,7 +743,7 @@ async fn test_texas_email_ignored_for_wrong_subscription() {
     .unwrap();
 
     assert_eq!(response.status_code, 200);
-    assert_eq!(response.failure, Err(ValidationFailure::Subscription));
+    assert_eq!(response.failure, Some(ValidationFailure::Subscription));
     assert_eq!(server.received_requests().await.unwrap().len(), 0);
 }
 
@@ -793,5 +794,5 @@ async fn test_ignore_messages_from_invalid_court_ids() {
     .await
     .unwrap();
     assert_eq!(response.status_code, 424);
-    assert_eq!(response.failure, Err(ValidationFailure::Email));
+    assert_eq!(response.failure, Some(ValidationFailure::Email));
 }

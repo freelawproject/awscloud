@@ -18,6 +18,7 @@ use aws_lambda_events::ses::{
 };
 use lambda_runtime::tracing::{
     error,
+    info,
     warn,
 };
 use lambda_runtime::{
@@ -82,8 +83,8 @@ impl std::error::Error for ValidationFailure {}
 pub struct Response {
     /// HTTP-style status code describing the outcome.
     pub status_code: u16,
-    /// `Ok` when the event was accepted, otherwise the reason it was rejected.
-    pub failure: Result<(), ValidationFailure>,
+    /// `None` when the event was accepted, otherwise the reason it was rejected.
+    pub failure: Option<ValidationFailure>,
     /// The response body: the CourtListener response, or the SES receipt when
     /// the event was rejected before being forwarded.
     pub body: Value,
@@ -95,7 +96,7 @@ impl Response {
     pub fn success(body: Value) -> Response {
         Self {
             status_code: 200,
-            failure: Ok(()),
+            failure: None,
             body,
         }
     }
@@ -105,7 +106,7 @@ impl Response {
     pub fn source_missing_failure() -> Response {
         Self {
             status_code: 415,
-            failure: Err(ValidationFailure::EventSourceMissing),
+            failure: Some(ValidationFailure::EventSourceMissing),
             body: json!({"message": "PACER email receipt requires aws:ses eventSource."}),
         }
     }
@@ -123,7 +124,7 @@ impl Response {
         );
         Self {
             status_code: 424,
-            failure: Err(failure),
+            failure: Some(failure),
             body: serde_json::to_value(event.receipt())
                 .unwrap_or(json!({"error": "Failed to serialize message receipt"})),
         }
@@ -138,8 +139,11 @@ pub struct EndpointMap {
     cl_endpoints: HashMap<String, Option<String>>,
 }
 
-impl Default for EndpointMap {
-    fn default() -> Self {
+impl EndpointMap {
+    /// Initialize based on the `RECAP_EMAIL_ENDPOINT`, `SCOTUS_EMAIL_ENDPOINT`, and
+    /// `TEXAS_EMAIL_ENDPOINT` environment variables
+    #[must_use]
+    pub fn from_env() -> EndpointMap {
         let recap_endpoint = env::var("RECAP_EMAIL_ENDPOINT").ok();
         let scotus_email_endpoint = env::var("SCOTUS_EMAIL_ENDPOINT").ok();
         let texas_email_endpoint = env::var("TEXAS_EMAIL_ENDPOINT").ok();
@@ -185,7 +189,6 @@ impl EndpointMap {
     /// we accept updates from.
     #[must_use]
     pub fn is_valid_domain(&self, addrs: &[Option<&str>]) -> bool {
-        // Check all Return-Path headers comes from uscourts.gov
         addrs
             .iter()
             .filter_map(|v| *v)
@@ -243,12 +246,6 @@ pub struct SESEvent<'a, ValidationState>(&'a SimpleEmailService, ValidationState
 impl<'a> From<&'a SimpleEmailService> for SESEvent<'a, Unvalidated> {
     fn from(event: &'a SimpleEmailService) -> Self {
         Self(event, Unvalidated)
-    }
-}
-
-impl<'a, VS> From<SESEvent<'a, VS>> for &'a SimpleEmailService {
-    fn from(event: SESEvent<'a, VS>) -> Self {
-        event.0
     }
 }
 
@@ -352,7 +349,7 @@ impl<'a> SESEvent<'a, Unvalidated> {
         self.verdict_require_pass_or_gray(&self.0.receipt.dmarc_verdict, ValidationFailure::Dmarc)?;
         self.verdict_require_pass_or_gray(&self.0.receipt.dkim_verdict, ValidationFailure::Dkim)?;
 
-        let endpoint_map = EndpointMap::default();
+        let endpoint_map = EndpointMap::from_env();
         let email_map = EmailMap::default();
 
         if !endpoint_map.is_valid_domain(&self.get_header("Return-Path")) {
@@ -370,17 +367,17 @@ impl<'a> SESEvent<'a, Unvalidated> {
             );
             return Err(Response {
                 status_code: 200,
-                failure: Err(ValidationFailure::Subscription),
+                failure: Some(ValidationFailure::Subscription),
                 body: serde_json::to_value(&self.0.receipt)
                     .unwrap_or(json!({"error": "Failed to serialize message receipt"})),
             });
         }
 
         let court_id = match email_map.email_to_cl_id(&self) {
-            Ok(id) => id,
+            Ok(id) => id.to_string(),
             Err(e) => return Err(Response::dependency_failure(&self, e)),
         };
-        if email_map.ignored_subdomains.contains(&court_id.as_str()) {
+        if email_map.ignored_subdomains.contains(&&*court_id) {
             return Err(Response::dependency_failure(
                 &self,
                 ValidationFailure::Email,
@@ -410,14 +407,15 @@ impl SESEvent<'_, Validated> {
             .endpoint
             .clone()
             .ok_or("no CourtListener endpoint configured")?;
+        let client = reqwest::Client::new();
         utils::retry(is_retryable, 5, 10, 3, || async {
-            println!(
+            info!(
                 "{} sending to Court Listener API.",
                 self.get_combined_log_message()
             );
 
             // DEV DOMAIN: http://host.docker.internal:8000
-            let court_listener_response = reqwest::Client::new()
+            let court_listener_response = client
                 .post(&endpoint)
                 .json(&CLPayload::from(self))
                 .timeout(Duration::from_secs(5))
@@ -446,7 +444,7 @@ impl SESEvent<'_, Validated> {
 
             Ok(Response {
                 status_code: 200,
-                failure: Ok(()),
+                failure: None,
                 body: response_json,
             })
         })
