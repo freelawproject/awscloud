@@ -97,7 +97,7 @@ impl EmailMap {
         self.domain_to_cl_id
             .get(email.domain())
             .copied()
-            .unwrap_or(email.domain())
+            .unwrap_or(email.domain_name())
     }
 
     /// Extract the PACER court id from the originating ECF database hostname
@@ -171,7 +171,7 @@ impl EmailMap {
                             &format!(
                                 "ECF host court mismatch: From-derived court '{pacer_id}' vs ECF \
                                  host court '{ecf_court}' - message_id: {}",
-                                event.email().message_id.clone().unwrap_or_default(),
+                                event.email().message_id.as_deref().unwrap_or_default(),
                             ),
                             sentry::Level::Error,
                         )
@@ -186,9 +186,9 @@ impl EmailMap {
                 .email()
                 .common_headers
                 .subject
-                .clone()
+                .as_deref()
                 .ok_or(ValidationFailure::MissingCommonSubject)?;
-            return Ok(Cow::from(get_tx_court_id_from_subject(&subject)?));
+            return Ok(Cow::from(get_tx_court_id_from_subject(subject)?));
         }
         Ok(Cow::from(cl_id))
     }
@@ -206,7 +206,7 @@ impl EmailMap {
         let Some(source_domain) = event.get_source_domain() else {
             return true;
         };
-        let Some(required) = self.domain_to_subscription.get(source_domain) else {
+        let Some(required) = self.domain_to_subscription.get(source_domain.as_str()) else {
             return true;
         };
 

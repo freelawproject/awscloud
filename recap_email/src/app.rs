@@ -68,6 +68,8 @@ pub enum ValidationFailure {
     MissingCommonSubject,
     /// The `From` address could not be parsed.
     AddressParsingFailed,
+    /// No CourtListener endpoint was configured
+    NoCourtListenerEndpoint,
 }
 
 impl std::fmt::Display for ValidationFailure {
@@ -136,7 +138,7 @@ impl Response {
 /// `TEXAS_EMAIL_ENDPOINT` environment variables.
 pub struct EndpointMap {
     recap_endpoint: Option<String>,
-    cl_endpoints: HashMap<String, Option<String>>,
+    cl_endpoints: HashMap<&'static str, Option<String>>,
 }
 
 impl EndpointMap {
@@ -149,10 +151,10 @@ impl EndpointMap {
         let texas_email_endpoint = env::var("TEXAS_EMAIL_ENDPOINT").ok();
         Self {
             cl_endpoints: HashMap::from([
-                ("sc-us.gov".to_string(), scotus_email_endpoint),
-                ("fedcourts.us".to_string(), recap_endpoint.clone()),
-                ("uscourts.gov".to_string(), recap_endpoint.clone()),
-                ("txcourts.gov".to_string(), texas_email_endpoint),
+                ("sc-us.gov", scotus_email_endpoint),
+                ("fedcourts.us", recap_endpoint.clone()),
+                ("uscourts.gov", recap_endpoint.clone()),
+                ("txcourts.gov", texas_email_endpoint),
             ]),
             recap_endpoint,
         }
@@ -175,7 +177,7 @@ impl EndpointMap {
                     .get(addr.domain())
                     .and_then(ToOwned::to_owned)
             })
-            .or(self.recap_endpoint.clone())
+            .or_else(|| self.recap_endpoint.clone())
     }
 
     /// Check whether an email address is one we accept updates from.
@@ -198,11 +200,7 @@ impl EndpointMap {
 
 /// Checks if the response indicates an invalid court pk then send a report
 /// to Sentry.
-pub fn log_invalid_court_error(
-    status_code: u16,
-    response_json: &Value,
-    message_id: &Option<String>,
-) {
+pub fn log_invalid_court_error(status_code: u16, response_json: &Value, message_id: &Option<&str>) {
     let invalid_pk_re = regex!(r#"Invalid pk "([^"]+)"#);
 
     if status_code != 400 {
@@ -219,7 +217,7 @@ pub fn log_invalid_court_error(
         };
         let error_message = format!(
             "Invalid court pk: {court_id} - message_id: {}",
-            message_id.clone().unwrap_or_default()
+            message_id.as_deref().unwrap_or_default()
         );
         sentry::with_scope(
             |scope| scope.set_fingerprint(Some(&["invalid-court-pk"])),
@@ -236,7 +234,7 @@ pub struct Unvalidated;
 /// the resolved court id and its CourtListener endpoint.
 pub struct Validated {
     court_id: String,
-    endpoint: Option<String>,
+    endpoint: String,
 }
 
 /// A borrowed SES email paired with a typestate marker (`Unvalidated` or
@@ -293,47 +291,31 @@ impl<'a, VS> SESEvent<'a, VS> {
     /// Return the registrable domain from the email's `"Return-Path"` header,
     /// or None if no `"Return-Path"` is present or parseable.
     #[must_use]
-    pub fn get_source_domain(&self) -> Option<&'a str> {
+    pub fn get_source_domain(&self) -> Option<String> {
         self.get_header("Return-Path")
             .iter()
             .filter_map(|v| v.and_then(EmailAddress::parse_str))
-            .map(|email_address| email_address.domain())
+            .map(|email_address| email_address.domain().to_lowercase())
             .next()
     }
 }
 
 impl<'a> SESEvent<'a, Unvalidated> {
-    fn verdict_require_pass(
+    fn require_verdict(
         &self,
         verdict: &SimpleEmailVerdict,
+        verdicts: &[&str],
         failure: ValidationFailure,
     ) -> Result<(), Response> {
         match &verdict.status {
             Some(status) => {
-                if status == "PASS" {
+                if verdicts.contains(&status.as_str()) {
                     Ok(())
                 } else {
                     Err(Response::dependency_failure(self, failure))
                 }
             }
-            None => Ok(()),
-        }
-    }
-
-    fn verdict_require_pass_or_gray(
-        &self,
-        verdict: &SimpleEmailVerdict,
-        failure: ValidationFailure,
-    ) -> Result<(), Response> {
-        match &verdict.status {
-            Some(status) => {
-                if status == "PASS" || status == "GRAY" {
-                    Ok(())
-                } else {
-                    Err(Response::dependency_failure(self, failure))
-                }
-            }
-            None => Ok(()),
+            None => Err(Response::dependency_failure(self, failure)),
         }
     }
 
@@ -343,11 +325,31 @@ impl<'a> SESEvent<'a, Unvalidated> {
     /// # Errors
     /// Will return an error if any validation step fails.
     pub fn validate(self) -> Result<SESEvent<'a, Validated>, Response> {
-        self.verdict_require_pass(&self.0.receipt.spam_verdict, ValidationFailure::Spam)?;
-        self.verdict_require_pass(&self.0.receipt.virus_verdict, ValidationFailure::Virus)?;
-        self.verdict_require_pass_or_gray(&self.0.receipt.spf_verdict, ValidationFailure::Spf)?;
-        self.verdict_require_pass_or_gray(&self.0.receipt.dmarc_verdict, ValidationFailure::Dmarc)?;
-        self.verdict_require_pass_or_gray(&self.0.receipt.dkim_verdict, ValidationFailure::Dkim)?;
+        self.require_verdict(
+            &self.0.receipt.spam_verdict,
+            &["PASS"],
+            ValidationFailure::Spam,
+        )?;
+        self.require_verdict(
+            &self.0.receipt.virus_verdict,
+            &["PASS"],
+            ValidationFailure::Virus,
+        )?;
+        self.require_verdict(
+            &self.0.receipt.spf_verdict,
+            &["PASS", "GRAY"],
+            ValidationFailure::Spf,
+        )?;
+        self.require_verdict(
+            &self.0.receipt.dmarc_verdict,
+            &["PASS", "GRAY"],
+            ValidationFailure::Dmarc,
+        )?;
+        self.require_verdict(
+            &self.0.receipt.dkim_verdict,
+            &["PASS", "GRAY"],
+            ValidationFailure::Dkim,
+        )?;
 
         let endpoint_map = EndpointMap::from_env();
         let email_map = EmailMap::default();
@@ -384,14 +386,14 @@ impl<'a> SESEvent<'a, Unvalidated> {
             ));
         }
 
+        let Some(endpoint) = endpoint_map.get_cl_endpoint(&self.get_header("Return-Path")) else {
+            return Err(Response::dependency_failure(
+                &self,
+                ValidationFailure::NoCourtListenerEndpoint,
+            ));
+        };
 
-        Ok(SESEvent(
-            self.0,
-            Validated {
-                court_id,
-                endpoint: endpoint_map.get_cl_endpoint(&self.get_header("Return-Path")),
-            },
-        ))
+        Ok(SESEvent(self.0, Validated { court_id, endpoint }))
     }
 }
 
@@ -402,53 +404,59 @@ impl SESEvent<'_, Validated> {
     /// Will return an error if the send attempt fails all retries or if no CourtListener endpoint
     /// is configured for this event.
     pub async fn send_to_court_listener(&self) -> Result<Response, Error> {
-        let endpoint = self
-            .1
-            .endpoint
-            .clone()
-            .ok_or("no CourtListener endpoint configured")?;
+        let endpoint = self.1.endpoint.as_str();
         let client = reqwest::Client::new();
-        utils::retry(is_retryable, 5, 10, 3, || async {
-            info!(
-                "{} sending to Court Listener API.",
-                self.get_combined_log_message()
-            );
+        Ok(utils::retry(
+            |e: &reqwest::Error| e.is_connect() || e.is_timeout() || e.is_status(),
+            5,
+            10,
+            3,
+            || async {
+                info!(
+                    "{} sending to Court Listener API.",
+                    self.get_combined_log_message()
+                );
 
-            // DEV DOMAIN: http://host.docker.internal:8000
-            let court_listener_response = client
-                .post(&endpoint)
-                .json(&CLPayload::from(self))
-                .timeout(Duration::from_secs(5))
-                .header(
-                    "Authorization",
-                    format!(
-                        "Token {}",
-                        env::var("AUTH_TOKEN").unwrap_or_else(|_| "None".to_string())
-                    ),
-                )
-                .send()
-                .await?;
+                // DEV DOMAIN: http://host.docker.internal:8000
+                let court_listener_response = client
+                    .post(endpoint)
+                    .json(&CLPayload::from(self))
+                    .timeout(Duration::from_secs(5))
+                    .header(
+                        "Authorization",
+                        format!(
+                            "Token {}",
+                            env::var("AUTH_TOKEN").unwrap_or_else(|_| "None".to_string())
+                        ),
+                    )
+                    .send()
+                    .await?;
 
-            let status_code = court_listener_response.status().as_u16();
-            if [502, 503, 504].contains(&status_code) {
-                // Raise an HTTPError for Bad Gateway, Service Unavailable or
-                // Gateway Timeout status codes.
-                court_listener_response.error_for_status_ref()?;
-            }
+                let status_code = court_listener_response.status().as_u16();
+                if [502, 503, 504].contains(&status_code) {
+                    // Raise an HTTPError for Bad Gateway, Service Unavailable or
+                    // Gateway Timeout status codes.
+                    court_listener_response.error_for_status_ref()?;
+                }
 
-            let response_json = court_listener_response.json().await?;
+                let response_json = court_listener_response.json().await?;
 
-            log_invalid_court_error(status_code, &response_json, &self.email().message_id);
+                log_invalid_court_error(
+                    status_code,
+                    &response_json,
+                    &self.email().message_id.as_deref(),
+                );
 
-            println!("Got status_code={status_code} and content {response_json}");
+                println!("Got status_code={status_code} and content {response_json}");
 
-            Ok(Response {
-                status_code: 200,
-                failure: None,
-                body: response_json,
-            })
-        })
-        .await
+                Ok(Response {
+                    status_code: 200,
+                    failure: None,
+                    body: response_json,
+                })
+            },
+        )
+        .await?)
     }
 }
 
@@ -471,11 +479,6 @@ impl<'a> From<&'a SESEvent<'a, Validated>> for CLPayload<'a> {
     }
 }
 
-
-fn is_retryable(e: &Error) -> bool {
-    e.downcast_ref::<reqwest::Error>()
-        .is_some_and(|e| e.is_connect() || e.is_timeout() || e.is_status())
-}
 
 /// Forward an SES email event to the appropriate CourtListener endpoint if it is valid.
 ///

@@ -1,11 +1,11 @@
 //! Shared helpers: an exponential-backoff retry combinator and a zero-copy
 //! email address parser.
 
+use std::error::Error;
 use std::fmt::Formatter;
 use std::future::Future;
 use std::time::Duration;
 
-use lambda_runtime::Error;
 use lambda_runtime::tracing::info;
 use serde::{
     Serialize,
@@ -22,27 +22,27 @@ use serde::{
 ///
 /// # Errors
 /// After all retries are exhausted, will return the final output of `f`, which may be an error.
-pub async fn retry<T, F, Fut>(
-    exception_to_check: fn(&Error) -> bool,
+pub async fn retry<T, F, E: Error, Fut>(
+    exception_to_check: fn(&E) -> bool,
     tries: u32,
     delay: u64,
     backoff: u64,
     f: F,
-) -> Result<T, Error>
+) -> Result<T, E>
 where
     F: Fn() -> Fut,
-    Fut: Future<Output = Result<T, Error>>,
+    Fut: Future<Output = Result<T, E>>,
 {
-    let mut mtries = tries;
-    let mut mdelay = delay;
-    while mtries > 1 {
+    let mut tries = tries;
+    let mut delay = delay;
+    while tries > 1 {
         match f().await {
             Ok(value) => return Ok(value),
             Err(e) if exception_to_check(&e) => {
-                info!("{e}, Retrying in {mdelay} seconds...");
-                tokio::time::sleep(Duration::from_secs(mdelay)).await;
-                mtries -= 1;
-                mdelay *= backoff;
+                info!("{e}, Retrying in {delay} seconds...");
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+                tries -= 1;
+                delay *= backoff;
             }
             Err(e) => return Err(e),
         }
@@ -137,5 +137,13 @@ impl<'a> EmailAddress<'a> {
     pub fn domain(&self) -> &'a str {
         let start = self.subdomain_index();
         &self.value[(start + 1)..]
+    }
+
+    /// Get the the domain name of the address component (i.e. "uscourts" in "tx.uscourts.gov").
+    #[must_use]
+    pub fn domain_name(&self) -> &'a str {
+        let start = self.subdomain_index();
+        let end = self.dot_indices.last().copied().unwrap_or(start + 1);
+        &self.value[start..end]
     }
 }
