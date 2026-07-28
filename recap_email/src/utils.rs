@@ -1,54 +1,12 @@
 //! Shared helpers: an exponential-backoff retry combinator and a zero-copy
 //! email address parser.
 
-use std::error::Error;
 use std::fmt::Formatter;
-use std::future::Future;
-use std::time::Duration;
 
-use lambda_runtime::tracing::info;
 use serde::{
     Serialize,
     Serializer,
 };
-
-/// Retry calling the decorated function using an exponential backoff.
-///
-/// - `exception_to_check` Returns true if the given error value should be retried.
-/// - `tries` The maximum number of times to attempt the function.
-/// - `delay` The amount of time (in seconds) to wait between tries.
-/// - `backoff` The factor to multiply `delay` by after each try.
-/// - `f` The future to retry.
-///
-/// # Errors
-/// After all retries are exhausted, will return the final output of `f`, which may be an error.
-pub async fn retry<T, F, E: Error, Fut>(
-    exception_to_check: fn(&E) -> bool,
-    tries: u32,
-    delay: u64,
-    backoff: u64,
-    f: F,
-) -> Result<T, E>
-where
-    F: Fn() -> Fut,
-    Fut: Future<Output = Result<T, E>>,
-{
-    let mut tries = tries;
-    let mut delay = delay;
-    while tries > 1 {
-        match f().await {
-            Ok(value) => return Ok(value),
-            Err(e) if exception_to_check(&e) => {
-                info!("{e}, Retrying in {delay} seconds...");
-                tokio::time::sleep(Duration::from_secs(delay)).await;
-                tries -= 1;
-                delay *= backoff;
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    f().await
-}
 
 /// Structure for zero-copy email parsing.
 #[derive(Clone)]

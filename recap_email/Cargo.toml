@@ -12,6 +12,7 @@ sentry = "0.48"
 serde_json = "1.0"
 tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "time"] }
 serde = { version = "1.0", features = ["derive"] }
+tower = { version = "0.5.3", features = ["retry", "util"] }
 
 [dev-dependencies]
 sentry = { version = "0.48", features = ["test"] }

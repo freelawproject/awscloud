@@ -2013,6 +2013,7 @@ dependencies = [
  "serde_json",
  "temp-env",
  "tokio",
+ "tower",
  "wiremock",
 ]
 

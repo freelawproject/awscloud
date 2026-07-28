@@ -31,9 +31,14 @@ use serde_json::{
     Value,
     json,
 };
+use tower::{
+    Service,
+    ServiceBuilder,
+    ServiceExt,
+    retry,
+};
 
 use crate::pacer::EmailMap;
-use crate::utils;
 use crate::utils::EmailAddress;
 
 /// A reason an SES event was rejected during validation.
@@ -397,66 +402,120 @@ impl<'a> SESEvent<'a, Unvalidated> {
     }
 }
 
+/// Defines an exponential backoff retry policy for sending `POST` requests to CourtListener.
+#[derive(Debug, Clone)]
+struct CLSendRetryPolicy {
+    delay: Duration,
+    backoff: f32,
+    max_tries: u32,
+    current_try: u32,
+}
+
+impl CLSendRetryPolicy {
+    /// Create an exponential backoff retry policy with a base wait time of `delay`, which is
+    /// increased after each failed attempt by a factor of `backoff` with at most `max_tries`
+    /// attempts.
+    pub fn new(delay: Duration, backoff: f32, max_tries: u32) -> Self {
+        // Divide `delay` by backoff to start so we don't have to branch in `retry`.
+        Self {
+            delay: delay.div_f32(backoff),
+            backoff,
+            max_tries,
+            current_try: 0,
+        }
+    }
+}
+
+impl retry::Policy<reqwest::Request, reqwest::Response, reqwest::Error> for CLSendRetryPolicy {
+    type Future = tokio::time::Sleep;
+
+    fn retry(
+        &mut self,
+        _: &mut reqwest::Request,
+        result: &mut Result<reqwest::Response, reqwest::Error>,
+    ) -> Option<Self::Future> {
+        self.current_try += 1;
+        self.delay = self.delay.mul_f32(self.backoff);
+        if self.current_try >= self.max_tries {
+            return None;
+        }
+
+        match result {
+            Err(e) if e.is_connect() || e.is_timeout() || e.is_status() => {
+                Some(tokio::time::sleep(self.delay))
+            }
+            Ok(_) | Err(_) => None,
+        }
+    }
+
+    fn clone_request(&mut self, req: &reqwest::Request) -> Option<reqwest::Request> {
+        req.try_clone()
+    }
+}
+
 impl SESEvent<'_, Validated> {
     /// Send an event which has passed validation to the CourtListener endpoint for the given court.
     ///
     /// # Errors
-    /// Will return an error if the send attempt fails all retries or if no CourtListener endpoint
-    /// is configured for this event.
+    /// Will return an error if:
+    /// - The send attempt fails all retries;
+    /// - the response status is one of 502, 503, or 504;
+    /// - or we fail to parse the response as JSON.
     pub async fn send_to_court_listener(&self) -> Result<Response, Error> {
-        let endpoint = self.1.endpoint.as_str();
         let client = reqwest::Client::new();
-        Ok(utils::retry(
-            |e: &reqwest::Error| e.is_connect() || e.is_timeout() || e.is_status(),
-            5,
-            10,
-            3,
-            || async {
-                info!(
-                    "{} sending to Court Listener API.",
-                    self.get_combined_log_message()
-                );
+        // DEV DOMAIN: http://host.docker.internal:8000
+        let endpoint = self.1.endpoint.as_str();
+        let request = client
+            .post(endpoint)
+            .json(&CLPayload::from(self))
+            .timeout(Duration::from_secs(5))
+            .header(
+                "Authorization",
+                format!(
+                    "Token {}",
+                    env::var("AUTH_TOKEN").unwrap_or_else(|_| "None".to_string())
+                ),
+            )
+            .build()?;
 
-                // DEV DOMAIN: http://host.docker.internal:8000
-                let court_listener_response = client
-                    .post(endpoint)
-                    .json(&CLPayload::from(self))
-                    .timeout(Duration::from_secs(5))
-                    .header(
-                        "Authorization",
-                        format!(
-                            "Token {}",
-                            env::var("AUTH_TOKEN").unwrap_or_else(|_| "None".to_string())
-                        ),
-                    )
-                    .send()
-                    .await?;
+        let service = ServiceBuilder::new()
+            .retry(CLSendRetryPolicy::new(Duration::from_secs(10), 3.0, 5))
+            .map_result(
+                |result: Result<reqwest::Response, reqwest::Error>| match result {
+                    Ok(response) => {
+                        Ok(if [502, 503, 504].contains(&response.status().as_u16()) {
+                            // Raise an HTTPError for Bad Gateway, Service Unavailable or
+                            // Gateway Timeout status codes.
+                            response.error_for_status()?
+                        } else {
+                            response
+                        })
+                    }
+                    Err(e) => Err(e),
+                },
+            )
+            .service(client)
+            .and_then(async |response: reqwest::Response| {
+                let status = response.status().as_u16();
+                let json = response.json().await?;
 
-                let status_code = court_listener_response.status().as_u16();
-                if [502, 503, 504].contains(&status_code) {
-                    // Raise an HTTPError for Bad Gateway, Service Unavailable or
-                    // Gateway Timeout status codes.
-                    court_listener_response.error_for_status_ref()?;
-                }
+                log_invalid_court_error(status, &json, &self.email().message_id.as_deref());
 
-                let response_json = court_listener_response.json().await?;
-
-                log_invalid_court_error(
-                    status_code,
-                    &response_json,
-                    &self.email().message_id.as_deref(),
-                );
-
-                println!("Got status_code={status_code} and content {response_json}");
+                println!("Got status_code={status} and content {json}");
 
                 Ok(Response {
                     status_code: 200,
                     failure: None,
-                    body: response_json,
+                    body: json,
                 })
-            },
-        )
-        .await?)
+            });
+
+        info!(
+            "{} sending to Court Listener API.",
+            self.get_combined_log_message()
+        );
+
+        service.oneshot(request).await
     }
 }
 

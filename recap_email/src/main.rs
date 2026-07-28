@@ -4,9 +4,9 @@
 use lambda_runtime::{
     Error,
     run,
-    service_fn,
     tracing,
 };
+use tower::service_fn;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
